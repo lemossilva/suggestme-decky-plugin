@@ -1,0 +1,1432 @@
+import os
+import json
+import time
+import random
+import asyncio
+import ssl
+import certifi
+import aiohttp
+from dataclasses import dataclass, asdict, field
+from typing import Optional
+from enum import Enum
+
+import decky
+
+
+def _create_ssl_context() -> ssl.SSLContext:
+    try:
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+
+class SuggestMode(str, Enum):
+    GUIDED = "guided"
+    INTELLIGENT = "intelligent"
+    FRESH_AIR = "fresh_air"
+    LUCK = "luck"
+
+
+@dataclass
+class Game:
+    appid: int
+    name: str
+    playtime_forever: int = 0
+    rtime_last_played: Optional[int] = None
+    genres: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    community_tags: list[str] = field(default_factory=list)
+    img_icon_url: str = ""
+    has_community_visible_stats: bool = False
+    is_non_steam: bool = False
+    original_name: str = ""
+    matched_appid: Optional[int] = None
+    match_status: str = ""
+    deck_status: str = ""
+    protondb_tier: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Game":
+        return cls(
+            appid=data.get("appid", 0),
+            name=data.get("name", "Unknown"),
+            playtime_forever=data.get("playtime_forever", 0),
+            rtime_last_played=data.get("rtime_last_played"),
+            genres=data.get("genres", []),
+            tags=data.get("tags", []),
+            community_tags=data.get("community_tags", []),
+            img_icon_url=data.get("img_icon_url", ""),
+            has_community_visible_stats=data.get("has_community_visible_stats", False),
+            is_non_steam=data.get("is_non_steam", False),
+            original_name=data.get("original_name", ""),
+            matched_appid=data.get("matched_appid"),
+            match_status=data.get("match_status", ""),
+            deck_status=data.get("deck_status", ""),
+            protondb_tier=data.get("protondb_tier", ""),
+        )
+
+
+@dataclass
+class SuggestionHistoryEntry:
+    timestamp: int
+    appid: int
+    name: str
+    mode: str
+    is_non_steam: bool = False
+    matched_appid: Optional[int] = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SuggestionHistoryEntry":
+        return cls(
+            timestamp=data.get("timestamp", 0),
+            appid=data.get("appid", 0),
+            name=data.get("name", "Unknown"),
+            mode=data.get("mode", "luck"),
+            is_non_steam=data.get("is_non_steam", False),
+            matched_appid=data.get("matched_appid"),
+        )
+
+
+SETTINGS_FILE = "settings.json"
+LIBRARY_CACHE_FILE = "library_cache.json"
+HISTORY_FILE = "history.json"
+
+DEFAULT_SETTINGS = {
+    "steam_api_key": "",
+    "steam_id": "",
+    "default_mode": "luck",
+    "default_filters": {
+        "include_genres": [],
+        "exclude_genres": [],
+        "include_tags": [],
+        "exclude_tags": [],
+        "min_playtime": None,
+        "max_playtime": None,
+        "installed_only": False,
+        "include_unplayed": True,
+        "not_installed_only": False,
+        "non_steam_only": False,
+        "exclude_non_steam": False,
+        "deck_status": [],
+        "protondb_tier": [],
+        "include_collections": [],
+        "exclude_collections": [],
+    },
+}
+
+
+class Plugin:
+    settings: dict = {}
+    library_cache: list[Game] = []
+    history: list[SuggestionHistoryEntry] = []
+    last_refresh: Optional[int] = None
+    is_refreshing: bool = False
+    refresh_error: Optional[str] = None
+
+    def _get_settings_path(self) -> str:
+        return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, SETTINGS_FILE)
+
+    def _get_library_cache_path(self) -> str:
+        return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, LIBRARY_CACHE_FILE)
+
+    def _get_history_path(self) -> str:
+        return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, HISTORY_FILE)
+
+    def _load_settings(self) -> dict:
+        path = self._get_settings_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    settings = json.load(f)
+                    for key, value in DEFAULT_SETTINGS.items():
+                        settings.setdefault(key, value)
+                    return settings
+            except Exception as e:
+                decky.logger.error(f"Failed to load settings: {e}")
+        return DEFAULT_SETTINGS.copy()
+
+    def _save_settings(self) -> bool:
+        path = self._get_settings_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(self.settings, f, indent=2)
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to save settings: {e}")
+            return False
+
+    def _load_library_cache(self) -> tuple[list[Game], Optional[int]]:
+        path = self._get_library_cache_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                    games = [Game.from_dict(g) for g in data.get("games", [])]
+                    last_refresh = data.get("last_refresh")
+                    return games, last_refresh
+            except Exception as e:
+                decky.logger.error(f"Failed to load library cache: {e}")
+        return [], None
+
+    def _save_library_cache(self) -> bool:
+        path = self._get_library_cache_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            data = {
+                "games": [g.to_dict() for g in self.library_cache],
+                "last_refresh": self.last_refresh,
+            }
+            with open(path, "w") as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to save library cache: {e}")
+            return False
+
+    def _load_history(self) -> list[SuggestionHistoryEntry]:
+        path = self._get_history_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                    return [SuggestionHistoryEntry.from_dict(h) for h in data]
+            except Exception as e:
+                decky.logger.error(f"Failed to load history: {e}")
+        return []
+
+    def _save_history(self) -> bool:
+        path = self._get_history_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                json.dump([h.to_dict() for h in self.history], f, indent=2)
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to save history: {e}")
+            return False
+
+    def _add_to_history(self, game: Game, mode: str):
+        self.history = [h for h in self.history if not (h.appid == game.appid and h.mode == mode)]
+        entry = SuggestionHistoryEntry(
+            timestamp=int(time.time()),
+            appid=game.appid,
+            name=game.name,
+            mode=mode,
+            is_non_steam=game.is_non_steam,
+            matched_appid=game.matched_appid,
+        )
+        self.history.insert(0, entry)
+        self.history = self.history[:50]
+        self._save_history()
+
+    async def _main(self):
+        decky.logger.info("SuggestMe plugin loaded")
+        self.settings = self._load_settings()
+        self.library_cache, self.last_refresh = self._load_library_cache()
+        self.history = self._load_history()
+        decky.logger.info(f"Loaded {len(self.library_cache)} games from cache")
+
+    async def _unload(self):
+        decky.logger.info("SuggestMe plugin unloaded")
+
+    async def _uninstall(self):
+        decky.logger.info("SuggestMe plugin uninstalled")
+
+    async def get_config(self) -> dict:
+        return {
+            "steam_api_key": self.settings.get("steam_api_key", ""),
+            "steam_id": self.settings.get("steam_id", ""),
+            "default_mode": self.settings.get("default_mode", "luck"),
+            "default_filters": self.settings.get("default_filters", DEFAULT_SETTINGS["default_filters"]),
+        }
+
+    async def set_steam_credentials(self, api_key: str, steam_id: str) -> dict:
+        self.settings["steam_api_key"] = api_key
+        self.settings["steam_id"] = steam_id
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_default_mode(self, mode: str) -> dict:
+        self.settings["default_mode"] = mode
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_default_filters(self, filters: dict) -> dict:
+        self.settings["default_filters"] = filters
+        success = self._save_settings()
+        return {"success": success}
+
+    async def get_library_status(self) -> dict:
+        steam_games = [g for g in self.library_cache if not g.is_non_steam]
+        non_steam_games = [g for g in self.library_cache if g.is_non_steam]
+        
+        sync_progress = self._load_sync_progress()
+        progress_info = None
+        if sync_progress:
+            progress_info = {
+                "current": sync_progress.get("current", 0),
+                "total": sync_progress.get("total", 0),
+            }
+        
+        return {
+            "last_refresh": self.last_refresh,
+            "total_games": len(self.library_cache),
+            "steam_games_count": len(steam_games),
+            "non_steam_games_count": len(non_steam_games),
+            "is_refreshing": self.is_refreshing,
+            "error": self.refresh_error,
+            "sync_progress": progress_info,
+        }
+
+    async def _fetch_owned_games(self, api_key: str, steam_id: str) -> list[dict]:
+        api_key = api_key.strip()
+        steam_id = steam_id.strip()
+        
+        if not api_key or len(api_key) < 10:
+            raise Exception("Invalid Steam API key. Get one at https://steamcommunity.com/dev/apikey")
+        if not steam_id or not steam_id.isdigit() or len(steam_id) != 17:
+            raise Exception(f"Invalid Steam ID format. Must be 17-digit Steam ID 64 (e.g. 76561198012345678). Got: {steam_id}")
+        
+        url = f"http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={api_key}&steamid={steam_id}&include_appinfo=1&include_played_free_games=1&format=json"
+        decky.logger.info(f"Fetching games from: {url[:80]}...")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    decky.logger.error(f"Steam API error {response.status}: {body[:500]}")
+                    raise Exception(f"Steam API returned status {response.status}: {body[:200]}")
+                data = await response.json()
+                return data.get("response", {}).get("games", [])
+
+    async def _fetch_game_details(self, appid: int) -> dict:
+        url = f"https://store.steampowered.com/api/appdetails"
+        params = {"appids": appid}
+        ssl_ctx = _create_ssl_context()
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.get(url, params=params) as response:
+                if response.status != 200:
+                    return {}
+                data = await response.json()
+                app_data = data.get(str(appid), {})
+                if app_data.get("success"):
+                    return app_data.get("data", {})
+                return {}
+
+    def _normalize_game_name(self, name: str) -> str:
+        import re
+        normalized = re.sub(r'[^\w\s]', '', name).strip().lower()
+        normalized = re.sub(r'\s+', ' ', normalized)
+        for suffix in [' edition', ' goty', ' definitive', ' complete', ' deluxe', ' ultimate', ' remastered', ' remake']:
+            normalized = normalized.replace(suffix, '')
+        return normalized.strip()
+
+    def _calculate_name_similarity(self, name1: str, name2: str) -> float:
+        n1 = self._normalize_game_name(name1)
+        n2 = self._normalize_game_name(name2)
+        if n1 == n2:
+            return 1.0
+        if not n1 or not n2:
+            return 0.0
+        words1 = set(n1.split())
+        words2 = set(n2.split())
+        if not words1 or not words2:
+            return 0.0
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+        return intersection / union if union > 0 else 0.0
+
+    async def _search_steam_store(self, game_name: str) -> Optional[dict]:
+        import re
+        clean_name = re.sub(r'[^\w\s]', '', game_name).strip()
+        if not clean_name or len(clean_name) < 3:
+            return None
+        
+        url = "https://store.steampowered.com/api/storesearch/"
+        params = {"term": clean_name, "cc": "us", "l": "en"}
+        ssl_ctx = _create_ssl_context()
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        
+        try:
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(url, params=params) as response:
+                    if response.status != 200:
+                        return None
+                    data = await response.json()
+                    items = data.get("items", [])
+                    if not items:
+                        return None
+                    
+                    best_match = None
+                    best_score = 0.0
+                    
+                    for item in items[:5]:
+                        item_name = item.get("name", "")
+                        score = self._calculate_name_similarity(game_name, item_name)
+                        if score > best_score:
+                            best_score = score
+                            best_match = item
+                    
+                    if best_match and best_score >= 0.6:
+                        return {
+                            "appid": best_match.get("id"),
+                            "name": best_match.get("name"),
+                            "price": best_match.get("price", {}).get("final", 0),
+                            "match_confidence": best_score,
+                        }
+        except Exception as e:
+            decky.logger.warning(f"Steam store search failed for '{game_name}': {e}")
+        return None
+
+    async def _fetch_steam_tags(self, appid: int) -> list[str]:
+        try:
+            url = f"https://store.steampowered.com/app/{appid}"
+            ssl_ctx = _create_ssl_context()
+            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(url, headers={"Accept-Language": "en"}) as response:
+                    if response.status == 200:
+                        html = await response.text()
+                        import re
+                        tag_pattern = r'<a[^>]*class="app_tag"[^>]*>\s*([^<]+?)\s*</a>'
+                        matches = re.findall(tag_pattern, html)
+                        tags = [self._clean_text(t.strip()) for t in matches[:15]]
+                        return [t for t in tags if t and self._is_valid_label(t)]
+        except Exception as e:
+            decky.logger.debug(f"Steam tags fetch failed for {appid}: {e}")
+        return []
+
+    async def _fetch_protondb_tier(self, appid: int) -> str:
+        try:
+            url = f"https://www.protondb.com/api/v1/reports/summaries/{appid}.json"
+            ssl_ctx = _create_ssl_context()
+            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        tier = data.get("tier", "")
+                        if tier:
+                            return tier.lower()
+                        return ""
+                    return ""
+        except Exception as e:
+            decky.logger.debug(f"ProtonDB fetch failed for {appid}: {e}")
+            return ""
+
+    async def _fetch_deck_status(self, appid: int) -> str:
+        try:
+            url = f"https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?nAppID={appid}"
+            ssl_ctx = _create_ssl_context()
+            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        results = data.get("results", {})
+                        category = results.get("resolved_category", 0)
+                        if category == 3:
+                            return "verified"
+                        elif category == 2:
+                            return "playable"
+                        elif category == 1:
+                            return "unsupported"
+                        return ""
+                    return ""
+        except Exception as e:
+            decky.logger.debug(f"Deck status fetch failed for {appid}: {e}")
+            return ""
+
+    async def _get_user_collections(self) -> dict[str, list[int]]:
+        collections = {}
+        try:
+            userdata_path = os.path.expanduser("~/.steam/steam/userdata")
+            if not os.path.exists(userdata_path):
+                userdata_path = os.path.expanduser("~/.local/share/Steam/userdata")
+            
+            if os.path.exists(userdata_path):
+                for user_dir in os.listdir(userdata_path):
+                    config_path = os.path.join(userdata_path, user_dir, "7", "remote", "sharedconfig.vdf")
+                    if os.path.exists(config_path):
+                        try:
+                            with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            
+                            import re
+                            collection_pattern = r'"user-collections"\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}'
+                            match = re.search(collection_pattern, content, re.IGNORECASE | re.DOTALL)
+                            if match:
+                                collections_block = match.group(1)
+                                name_pattern = r'"([^"]+)"\s*\{\s*"id"\s*"([^"]+)"(?:.*?"added"\s*\{([^}]*)\})?'
+                                for col_match in re.finditer(name_pattern, collections_block, re.DOTALL):
+                                    col_id = col_match.group(1)
+                                    col_name = col_match.group(2) if col_match.group(2) else col_id
+                                    added_block = col_match.group(3) or ""
+                                    
+                                    appids = []
+                                    appid_pattern = r'"(\d+)"\s*"\d+"'
+                                    for appid_match in re.finditer(appid_pattern, added_block):
+                                        appids.append(int(appid_match.group(1)))
+                                    
+                                    if col_name and appids:
+                                        collections[col_name] = appids
+                        except Exception as e:
+                            decky.logger.debug(f"Failed to parse collections from {config_path}: {e}")
+        except Exception as e:
+            decky.logger.warning(f"Failed to get user collections: {e}")
+        return collections
+
+    async def get_collections(self) -> dict:
+        collections = await self._get_user_collections()
+        return {
+            "collections": list(collections.keys()),
+            "details": {name: len(appids) for name, appids in collections.items()}
+        }
+
+    async def _detect_non_steam_games(self) -> list[dict]:
+        try:
+            shortcuts_path = os.path.expanduser("~/.steam/steam/userdata")
+            if not os.path.exists(shortcuts_path):
+                shortcuts_path = os.path.expanduser("~/.local/share/Steam/userdata")
+            
+            non_steam_games = []
+            if os.path.exists(shortcuts_path):
+                for user_dir in os.listdir(shortcuts_path):
+                    vdf_path = os.path.join(shortcuts_path, user_dir, "config", "shortcuts.vdf")
+                    if os.path.exists(vdf_path):
+                        try:
+                            games = self._parse_shortcuts_vdf(vdf_path)
+                            non_steam_games.extend(games)
+                        except Exception as e:
+                            decky.logger.warning(f"Failed to parse shortcuts.vdf: {e}")
+            
+            return non_steam_games
+        except Exception as e:
+            decky.logger.error(f"Failed to detect non-steam games: {e}")
+            return []
+
+    def _parse_shortcuts_vdf(self, vdf_path: str) -> list[dict]:
+        games = []
+        try:
+            with open(vdf_path, "rb") as f:
+                data = f.read()
+            
+            i = 0
+            while i < len(data):
+                app_name_start = data.find(b'\x01AppName\x00', i)
+                if app_name_start == -1:
+                    break
+                
+                name_start = app_name_start + len(b'\x01AppName\x00')
+                name_end = data.find(b'\x00', name_start)
+                if name_end == -1:
+                    break
+                
+                app_name = data[name_start:name_end].decode('utf-8', errors='ignore')
+                
+                appid_marker = data.find(b'\x02appid\x00', i)
+                appid = 0
+                if appid_marker != -1 and appid_marker < name_start + 500:
+                    appid_start = appid_marker + len(b'\x02appid\x00')
+                    if appid_start + 4 <= len(data):
+                        appid = int.from_bytes(data[appid_start:appid_start+4], 'little', signed=False)
+                
+                if app_name:
+                    games.append({
+                        "name": app_name,
+                        "appid": appid,
+                        "is_non_steam": True
+                    })
+                
+                i = name_end + 1
+        except Exception as e:
+            decky.logger.warning(f"Error parsing VDF: {e}")
+        
+        return games
+
+    def _save_sync_progress(self, current: int, total: int, games: list[Game]) -> None:
+        try:
+            progress_file = self.plugin_dir / "sync_progress.json"
+            progress_data = {
+                "current": current,
+                "total": total,
+                "timestamp": int(time.time()),
+                "games": [g.to_dict() for g in games[:current]]
+            }
+            with open(progress_file, 'w') as f:
+                json.dump(progress_data, f)
+        except Exception as e:
+            decky.logger.debug(f"Failed to save sync progress: {e}")
+
+    def _load_sync_progress(self) -> dict | None:
+        try:
+            progress_file = self.plugin_dir / "sync_progress.json"
+            if progress_file.exists():
+                with open(progress_file, 'r') as f:
+                    data = json.load(f)
+                if time.time() - data.get("timestamp", 0) < 3600:
+                    return data
+                progress_file.unlink()
+        except Exception as e:
+            decky.logger.debug(f"Failed to load sync progress: {e}")
+        return None
+
+    def _clear_sync_progress(self) -> None:
+        try:
+            progress_file = self.plugin_dir / "sync_progress.json"
+            if progress_file.exists():
+                progress_file.unlink()
+        except Exception:
+            pass
+
+    async def _fetch_game_metadata_batch(self, games: list[Game], batch_size: int = 5, start_from: int = 0) -> None:
+        async def fetch_single(game: Game):
+            try:
+                details, deck_status, protondb, steam_tags = await asyncio.gather(
+                    self._fetch_game_details(game.appid),
+                    self._fetch_deck_status(game.appid),
+                    self._fetch_protondb_tier(game.appid),
+                    self._fetch_steam_tags(game.appid),
+                    return_exceptions=True
+                )
+                if isinstance(details, dict):
+                    genres = details.get("genres", [])
+                    game.genres = [self._clean_text(g.get("description", "")) for g in genres]
+                    categories = details.get("categories", [])
+                    game.tags = [self._clean_text(c.get("description", "")) for c in categories]
+                if isinstance(steam_tags, list):
+                    game.community_tags = steam_tags
+                if isinstance(deck_status, str):
+                    game.deck_status = deck_status
+                if isinstance(protondb, str):
+                    game.protondb_tier = protondb
+            except Exception as e:
+                decky.logger.debug(f"Batch fetch failed for {game.name}: {e}")
+
+        for i in range(start_from, len(games), batch_size):
+            batch = games[i:i + batch_size]
+            await asyncio.gather(*[fetch_single(g) for g in batch])
+            await asyncio.sleep(0.1)
+            
+            current_progress = min(i + batch_size, len(games))
+            if current_progress % 25 == 0 or current_progress == len(games):
+                await decky.emit("suggestme_refresh_progress", {
+                    "current": current_progress,
+                    "total": len(games),
+                })
+                self._save_sync_progress(current_progress, len(games), games)
+
+    def _clean_text(self, text: str) -> str:
+        if not text:
+            return ""
+        cleaned = ''.join(c for c in text if ord(c) < 0x0400 or ord(c) > 0x04FF)
+        return cleaned.strip()
+
+    async def refresh_library(self) -> dict:
+        if self.is_refreshing:
+            return {"success": False, "error": "Already refreshing"}
+
+        api_key = self.settings.get("steam_api_key", "")
+        steam_id = self.settings.get("steam_id", "")
+
+        if not api_key or not steam_id:
+            return {"success": False, "error": "Steam API key and Steam ID are required"}
+
+        self.is_refreshing = True
+        self.refresh_error = None
+        await decky.emit("suggestme_library_status_changed", {
+            "is_refreshing": True,
+            "error": None,
+        })
+
+        try:
+            decky.logger.info("Fetching owned games from Steam API...")
+            raw_games = await self._fetch_owned_games(api_key, steam_id)
+            decky.logger.info(f"Found {len(raw_games)} games")
+
+            games: list[Game] = []
+            for raw in raw_games:
+                game = Game(
+                    appid=raw.get("appid", 0),
+                    name=raw.get("name", "Unknown"),
+                    playtime_forever=raw.get("playtime_forever", 0),
+                    rtime_last_played=raw.get("rtime_last_played"),
+                    img_icon_url=raw.get("img_icon_url", ""),
+                    has_community_visible_stats=raw.get("has_community_visible_stats", False),
+                )
+                games.append(game)
+
+            await self._fetch_game_metadata_batch(games, batch_size=5)
+            self._clear_sync_progress()
+
+            existing_non_steam = [g for g in self.library_cache if g.is_non_steam]
+            self.library_cache = games + existing_non_steam
+            self.last_refresh = int(time.time())
+            self._save_library_cache()
+
+            steam_count = len(games)
+            non_steam_count = len(existing_non_steam)
+            
+            self.is_refreshing = False
+            await decky.emit("suggestme_library_status_changed", {
+                "is_refreshing": False,
+                "total_games": steam_count + non_steam_count,
+                "steam_games_count": steam_count,
+                "non_steam_games_count": non_steam_count,
+                "last_refresh": self.last_refresh,
+                "error": None,
+            })
+
+            return {
+                "success": True,
+                "total_games": steam_count,
+                "steam_count": steam_count,
+                "last_refresh": self.last_refresh,
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            decky.logger.error(f"Failed to refresh library: {error_msg}")
+            self.is_refreshing = False
+            self.refresh_error = error_msg
+            await decky.emit("suggestme_library_status_changed", {
+                "is_refreshing": False,
+                "error": error_msg,
+            })
+            return {"success": False, "error": error_msg}
+
+    def _filter_candidates(self, games: list[Game], filters: dict, installed_appids: set[int] = None) -> list[Game]:
+        candidates = []
+        include_genres = set(g.lower() for g in filters.get("include_genres", []))
+        exclude_genres = set(g.lower() for g in filters.get("exclude_genres", []))
+        include_tags = set(t.lower() for t in filters.get("include_tags", []))
+        exclude_tags = set(t.lower() for t in filters.get("exclude_tags", []))
+        include_community_tags = set(t.lower() for t in filters.get("include_community_tags", []))
+        exclude_community_tags = set(t.lower() for t in filters.get("exclude_community_tags", []))
+        min_playtime = filters.get("min_playtime")
+        max_playtime = filters.get("max_playtime")
+        include_unplayed = filters.get("include_unplayed", True)
+        installed_only = filters.get("installed_only", False)
+        not_installed_only = filters.get("not_installed_only", False)
+        non_steam_only = filters.get("non_steam_only", False)
+        exclude_non_steam = filters.get("exclude_non_steam", False)
+        deck_status_filter = set(s.lower() for s in filters.get("deck_status", []))
+        protondb_filter = set(s.lower() for s in filters.get("protondb_tier", []))
+        
+        if installed_appids is None:
+            installed_appids = set()
+
+        for game in games:
+            if game.is_non_steam and game.match_status != "matched":
+                continue
+
+            if non_steam_only and not game.is_non_steam:
+                continue
+
+            if exclude_non_steam and game.is_non_steam:
+                continue
+
+            if not include_unplayed and game.playtime_forever == 0:
+                continue
+
+            if installed_only and installed_appids and game.appid not in installed_appids:
+                continue
+
+            if not_installed_only and installed_appids and game.appid in installed_appids:
+                continue
+
+            if min_playtime is not None and game.playtime_forever < min_playtime:
+                continue
+
+            if max_playtime is not None and game.playtime_forever > max_playtime:
+                continue
+
+            game_genres_lower = set(g.lower() for g in game.genres)
+            game_tags_lower = set(t.lower() for t in game.tags)
+            game_community_tags_lower = set(t.lower() for t in game.community_tags)
+
+            if include_genres and not include_genres.intersection(game_genres_lower):
+                continue
+
+            if exclude_genres and exclude_genres.intersection(game_genres_lower):
+                continue
+
+            if include_tags and not include_tags.intersection(game_tags_lower):
+                continue
+
+            if exclude_tags and exclude_tags.intersection(game_tags_lower):
+                continue
+
+            if include_community_tags and not include_community_tags.intersection(game_community_tags_lower):
+                continue
+
+            if exclude_community_tags and exclude_community_tags.intersection(game_community_tags_lower):
+                continue
+
+            if deck_status_filter:
+                if not game.deck_status or game.deck_status.lower() not in deck_status_filter:
+                    continue
+
+            if protondb_filter:
+                if not game.protondb_tier or game.protondb_tier.lower() not in protondb_filter:
+                    continue
+
+            candidates.append(game)
+
+        return candidates
+
+    def _get_recent_games(self, n: int = 10) -> list[Game]:
+        sorted_games = sorted(
+            [g for g in self.library_cache if g.rtime_last_played],
+            key=lambda g: g.rtime_last_played or 0,
+            reverse=True,
+        )
+        return sorted_games[:n]
+
+    def _get_most_played_games(self, n: int = 30) -> list[Game]:
+        sorted_games = sorted(
+            [g for g in self.library_cache if g.playtime_forever > 0],
+            key=lambda g: g.playtime_forever,
+            reverse=True,
+        )
+        return sorted_games[:n]
+
+    def _compute_preference_profile(self, recent_games: list[Game], most_played: list[Game] = None) -> dict:
+        genre_scores: dict[str, float] = {}
+        tag_scores: dict[str, float] = {}
+
+        now = time.time()
+        for game in recent_games:
+            days_ago = (now - (game.rtime_last_played or 0)) / 86400 if game.rtime_last_played else 365
+            recency_weight = max(0.1, 1.0 - (days_ago / 180))
+            for genre in game.genres:
+                g = genre.lower()
+                genre_scores[g] = genre_scores.get(g, 0) + recency_weight
+            for tag in game.tags:
+                t = tag.lower()
+                tag_scores[t] = tag_scores.get(t, 0) + recency_weight * 0.5
+
+        if most_played:
+            max_pt = max(g.playtime_forever for g in most_played) if most_played else 1
+            for game in most_played:
+                pt_weight = (game.playtime_forever / max_pt) * 0.6
+                for genre in game.genres:
+                    g = genre.lower()
+                    genre_scores[g] = genre_scores.get(g, 0) + pt_weight
+                for tag in game.tags:
+                    t = tag.lower()
+                    tag_scores[t] = tag_scores.get(t, 0) + pt_weight * 0.4
+
+        total = (len(recent_games) + len(most_played or [])) or 1
+        return {
+            "genres": {k: v / total for k, v in genre_scores.items()},
+            "tags": {k: v / total for k, v in tag_scores.items()},
+        }
+
+    def _score_intelligent(self, game: Game, profile: dict) -> float:
+        score = 0.0
+        genre_profile = profile.get("genres", {})
+        tag_profile = profile.get("tags", {})
+
+        for genre in game.genres:
+            score += genre_profile.get(genre.lower(), 0)
+
+        for tag in game.tags:
+            score += tag_profile.get(tag.lower(), 0) * 0.5
+
+        if game.playtime_forever == 0:
+            score += 0.3
+
+        if game.rtime_last_played:
+            days_since = (time.time() - game.rtime_last_played) / 86400
+            if days_since > 30:
+                score += 0.2
+
+        return score
+
+    def _score_fresh_air(self, game: Game, profile: dict) -> float:
+        score = 1.0
+        genre_profile = profile.get("genres", {})
+        tag_profile = profile.get("tags", {})
+
+        for genre in game.genres:
+            score -= genre_profile.get(genre.lower(), 0) * 0.5
+
+        for tag in game.tags:
+            score -= tag_profile.get(tag.lower(), 0) * 0.3
+
+        if game.playtime_forever == 0:
+            score += 0.5
+
+        all_genres = set(genre_profile.keys())
+        game_genres = set(g.lower() for g in game.genres)
+        novel_genres = game_genres - all_genres
+        score += len(novel_genres) * 0.2
+
+        return max(0, score)
+
+    def _get_mode_history_appids(self, mode: str) -> set[int]:
+        return set(h.appid for h in self.history if h.mode == mode)
+
+    async def get_suggestion(self, mode: str, filters: dict, installed_appids: list[int] = None) -> dict:
+        if not self.library_cache:
+            return {
+                "game": None,
+                "candidates_count": 0,
+                "mode_used": mode,
+                "error": "Library is empty. Please refresh your library first.",
+            }
+
+        deck_filter = filters.get("deck_status", [])
+        protondb_filter = filters.get("protondb_tier", [])
+        if deck_filter or protondb_filter:
+            sample_games = self.library_cache[:5]
+            for g in sample_games:
+                decky.logger.info(f"[Filter Debug] {g.name}: deck_status='{g.deck_status}', protondb_tier='{g.protondb_tier}'")
+            decky.logger.info(f"[Filter Debug] deck_filter={deck_filter}, protondb_filter={protondb_filter}")
+
+        installed_set = set(installed_appids) if installed_appids else set()
+        candidates = self._filter_candidates(self.library_cache, filters, installed_set)
+
+        mode_history = self._get_mode_history_appids(mode)
+        fresh_candidates = [g for g in candidates if g.appid not in mode_history]
+
+        if not fresh_candidates:
+            fresh_candidates = candidates
+
+        if not fresh_candidates:
+            return {
+                "game": None,
+                "candidates_count": 0,
+                "mode_used": mode,
+                "error": "No games match your filters.",
+            }
+
+        selected_game: Optional[Game] = None
+
+        if mode == SuggestMode.GUIDED.value:
+            sorted_candidates = sorted(fresh_candidates, key=lambda g: g.playtime_forever)
+            top_pool = sorted_candidates[:max(3, len(sorted_candidates) // 5)]
+            selected_game = random.choice(top_pool)
+
+        elif mode == SuggestMode.INTELLIGENT.value:
+            recent_games = self._get_recent_games(20)
+            most_played = self._get_most_played_games(30)
+            profile = self._compute_preference_profile(recent_games, most_played)
+            scored = [(g, self._score_intelligent(g, profile)) for g in fresh_candidates]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            top_n = max(5, len(scored) // 5)
+            top_pool = scored[:top_n]
+            weights = [max(0.01, s) for _, s in top_pool]
+            selected_game = random.choices([g for g, _ in top_pool], weights=weights, k=1)[0]
+
+        elif mode == SuggestMode.FRESH_AIR.value:
+            recent_games = self._get_recent_games(20)
+            most_played = self._get_most_played_games(30)
+            profile = self._compute_preference_profile(recent_games, most_played)
+            scored = [(g, self._score_fresh_air(g, profile)) for g in fresh_candidates]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            top_n = max(5, len(scored) // 5)
+            top_pool = scored[:top_n]
+            weights = [max(0.01, s) for _, s in top_pool]
+            selected_game = random.choices([g for g, _ in top_pool], weights=weights, k=1)[0]
+
+        elif mode == SuggestMode.LUCK.value:
+            weights = []
+            for g in fresh_candidates:
+                w = 1.0
+                if g.playtime_forever == 0:
+                    w = 2.0
+                weights.append(w)
+            selected_game = random.choices(fresh_candidates, weights=weights, k=1)[0]
+
+        else:
+            selected_game = random.choice(fresh_candidates)
+
+        if selected_game:
+            self._add_to_history(selected_game, mode)
+
+        return {
+            "game": selected_game.to_dict() if selected_game else None,
+            "candidates_count": len(candidates),
+            "mode_used": mode,
+            "error": None,
+        }
+
+    async def get_history(self, limit: int = 20) -> list[dict]:
+        return [h.to_dict() for h in self.history[:limit]]
+
+    async def get_suggestion_history(self) -> dict:
+        result = {
+            "luck": [],
+            "guided": [],
+            "intelligent": [],
+            "fresh_air": []
+        }
+        for entry in self.history:
+            mode = entry.mode
+            if mode in result:
+                result[mode].append(entry.to_dict())
+        return result
+
+    async def delete_history_entry(self, mode: str, appid: int) -> bool:
+        original_len = len(self.history)
+        self.history = [h for h in self.history if not (h.mode == mode and h.appid == appid)]
+        if len(self.history) < original_len:
+            self._save_history()
+            return True
+        return False
+
+    async def clear_history(self) -> dict:
+        self.history = []
+        self._save_history()
+        return {"success": True}
+
+    async def clear_mode_history(self, mode: str) -> dict:
+        self.history = [h for h in self.history if h.mode != mode]
+        self._save_history()
+        return {"success": True}
+
+    def _is_valid_label(self, text: str) -> bool:
+        if not text or not text.strip():
+            return False
+        stripped = text.strip()
+        if stripped in ('', '()', '( )', '(  )'):
+            return False
+        if all(c in '() ' for c in stripped):
+            return False
+        return True
+
+    async def get_available_genres(self) -> list[str]:
+        genres: set[str] = set()
+        for game in self.library_cache:
+            for g in game.genres:
+                if self._is_valid_label(g):
+                    genres.add(g)
+        return sorted(genres)
+
+    async def get_available_tags(self) -> list[str]:
+        tags: set[str] = set()
+        for game in self.library_cache:
+            for t in game.tags:
+                if self._is_valid_label(t):
+                    tags.add(t)
+        return sorted(tags)
+
+    async def get_available_community_tags(self) -> list[str]:
+        tags: set[str] = set()
+        for game in self.library_cache:
+            for t in game.community_tags:
+                if self._is_valid_label(t):
+                    tags.add(t)
+        return sorted(tags)
+
+    async def get_non_steam_games(self) -> dict:
+        non_steam = [g for g in self.library_cache if g.is_non_steam]
+        matched = [g for g in non_steam if g.matched_appid]
+        unmatched = [g for g in non_steam if not g.matched_appid]
+        return {
+            "total": len(non_steam),
+            "matched": len(matched),
+            "unmatched": len(unmatched),
+            "games": [g.to_dict() for g in non_steam]
+        }
+
+    async def full_sync(self) -> dict:
+        api_key = self.settings.get("steam_api_key", "")
+        steam_id = self.settings.get("steam_id", "")
+
+        if not api_key or not steam_id:
+            return {"success": False, "error": "Steam API key and Steam ID are required"}
+
+        self.is_refreshing = True
+        self.refresh_error = None
+        await decky.emit("suggestme_library_status_changed", {
+            "is_refreshing": True,
+            "error": None,
+        })
+
+        try:
+            decky.logger.info("Phase 1: Scanning Steam library...")
+            raw_games = await self._fetch_owned_games(api_key, steam_id)
+            decky.logger.info(f"Found {len(raw_games)} Steam games")
+
+            steam_games: list[Game] = []
+            for raw in raw_games:
+                game = Game(
+                    appid=raw.get("appid", 0),
+                    name=raw.get("name", "Unknown"),
+                    playtime_forever=raw.get("playtime_forever", 0),
+                    rtime_last_played=raw.get("rtime_last_played"),
+                    img_icon_url=raw.get("img_icon_url", ""),
+                    has_community_visible_stats=raw.get("has_community_visible_stats", False),
+                )
+                steam_games.append(game)
+
+            decky.logger.info("Phase 1: Scanning Non-Steam games...")
+            detected = await self._detect_non_steam_games()
+            
+            seen_names = set()
+            unique_detected = []
+            for ns_game in detected:
+                name_key = ns_game.get("name", "").lower().strip()
+                if name_key and name_key not in seen_names:
+                    seen_names.add(name_key)
+                    unique_detected.append(ns_game)
+            
+            decky.logger.info(f"Found {len(unique_detected)} unique Non-Steam games")
+
+            existing_non_steam_names = set()
+            non_steam_games: list[Game] = []
+            
+            for ns_game in unique_detected:
+                name = ns_game.get("name", "")
+                name_key = name.lower().strip()
+                
+                if name_key in existing_non_steam_names:
+                    continue
+                existing_non_steam_names.add(name_key)
+                
+                game = Game(
+                    appid=ns_game.get("appid", 0),
+                    name=name,
+                    is_non_steam=True,
+                    original_name=name,
+                    match_status="pending"
+                )
+                non_steam_games.append(game)
+
+            decky.logger.info("Phase 2: Matching Non-Steam games to Steam store...")
+            matched_count = 0
+            for i, game in enumerate(non_steam_games):
+                match = await self._search_steam_store(game.original_name)
+                if match:
+                    game.matched_appid = match.get("appid")
+                    game.match_status = "matched"
+                    matched_count += 1
+                else:
+                    game.match_status = "unmatched"
+                
+                if (i + 1) % 10 == 0 or i == len(non_steam_games) - 1:
+                    await decky.emit("suggestme_non_steam_progress", {
+                        "current": i + 1,
+                        "total": len(non_steam_games),
+                        "name": game.name
+                    })
+                await asyncio.sleep(0.05)
+
+            decky.logger.info(f"Matched {matched_count}/{len(non_steam_games)} Non-Steam games")
+
+            all_games_to_process: list[Game] = []
+            all_games_to_process.extend(steam_games)
+            all_games_to_process.extend([g for g in non_steam_games if g.matched_appid])
+
+            decky.logger.info(f"Phase 3: Fetching metadata for {len(all_games_to_process)} games...")
+            await self._fetch_game_metadata_batch(all_games_to_process, batch_size=5)
+            self._clear_sync_progress()
+
+            self.library_cache = steam_games + non_steam_games
+            self.last_refresh = int(time.time())
+            self._save_library_cache()
+
+            steam_count = len(steam_games)
+            non_steam_count = len(non_steam_games)
+            
+            self.is_refreshing = False
+            await decky.emit("suggestme_library_status_changed", {
+                "is_refreshing": False,
+                "total_games": steam_count + non_steam_count,
+                "steam_games_count": steam_count,
+                "non_steam_games_count": non_steam_count,
+                "last_refresh": self.last_refresh,
+                "error": None,
+            })
+
+            return {
+                "success": True,
+                "steam_count": steam_count,
+                "non_steam_count": non_steam_count,
+                "non_steam_matched": matched_count,
+                "total_games": steam_count + non_steam_count,
+                "last_refresh": self.last_refresh,
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            decky.logger.error(f"Failed to sync library: {error_msg}")
+            self.is_refreshing = False
+            self.refresh_error = error_msg
+            await decky.emit("suggestme_library_status_changed", {
+                "is_refreshing": False,
+                "error": error_msg,
+            })
+            return {"success": False, "error": error_msg}
+
+    async def sync_non_steam_games(self) -> dict:
+        decky.logger.info("Syncing non-steam games...")
+        
+        try:
+            detected = await self._detect_non_steam_games()
+            
+            seen_names = set()
+            unique_detected = []
+            for ns_game in detected:
+                name_key = ns_game.get("name", "").lower().strip()
+                if name_key and name_key not in seen_names:
+                    seen_names.add(name_key)
+                    unique_detected.append(ns_game)
+            
+            decky.logger.info(f"Detected {len(unique_detected)} unique non-steam games")
+            
+            existing_non_steam_names = {g.original_name.lower().strip() for g in self.library_cache if g.is_non_steam}
+            new_games = []
+            processed = 0
+            
+            for ns_game in unique_detected:
+                name = ns_game.get("name", "")
+                name_key = name.lower().strip()
+                processed += 1
+                
+                if name_key in existing_non_steam_names:
+                    await decky.emit("suggestme_non_steam_progress", {
+                        "current": processed,
+                        "total": len(unique_detected),
+                        "name": name
+                    })
+                    continue
+                
+                existing_non_steam_names.add(name_key)
+                
+                game = Game(
+                    appid=ns_game.get("appid", 0),
+                    name=name,
+                    is_non_steam=True,
+                    original_name=name,
+                    match_status="pending"
+                )
+                
+                match = await self._search_steam_store(name)
+                if match:
+                    matched_appid = match.get("appid")
+                    game.matched_appid = matched_appid
+                    game.match_status = "matched"
+                    
+                    details, deck_status, protondb = await asyncio.gather(
+                        self._fetch_game_details(matched_appid),
+                        self._fetch_deck_status(matched_appid),
+                        self._fetch_protondb_tier(matched_appid),
+                        return_exceptions=True
+                    )
+                    if isinstance(details, dict):
+                        genres = details.get("genres", [])
+                        game.genres = [self._clean_text(g.get("description", "")) for g in genres]
+                        categories = details.get("categories", [])
+                        game.tags = [self._clean_text(c.get("description", "")) for c in categories]
+                    if isinstance(deck_status, str):
+                        game.deck_status = deck_status
+                    if isinstance(protondb, str):
+                        game.protondb_tier = protondb
+                    
+                    await asyncio.sleep(0.1)
+                else:
+                    game.match_status = "unmatched"
+                
+                new_games.append(game)
+                await decky.emit("suggestme_non_steam_progress", {
+                    "current": processed,
+                    "total": len(unique_detected),
+                    "name": name
+                })
+            
+            self.library_cache.extend(new_games)
+            self._save_library_cache()
+            
+            return {
+                "success": True,
+                "count": len(new_games),
+                "detected": len(detected),
+                "new": len(new_games),
+                "matched": len([g for g in new_games if g.matched_appid])
+            }
+        except Exception as e:
+            decky.logger.error(f"Failed to sync non-steam games: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def resync_non_steam_game(self, original_name: str) -> dict:
+        for game in self.library_cache:
+            if game.is_non_steam and game.original_name == original_name:
+                match = await self._search_steam_store(original_name)
+                if match:
+                    game.matched_appid = match.get("appid")
+                    game.match_status = "matched"
+                    
+                    details = await self._fetch_game_details(match["appid"])
+                    if details:
+                        genres = details.get("genres", [])
+                        game.genres = [g.get("description", "") for g in genres]
+                        categories = details.get("categories", [])
+                        game.tags = [c.get("description", "") for c in categories]
+                    
+                    self._save_library_cache()
+                    return {"success": True, "game": game.to_dict()}
+                else:
+                    return {"success": False, "error": "No match found"}
+        
+        return {"success": False, "error": "Game not found"}
+
+    async def remove_non_steam_game(self, original_name: str) -> dict:
+        original_len = len(self.library_cache)
+        self.library_cache = [g for g in self.library_cache if not (g.is_non_steam and g.original_name == original_name)]
+        if len(self.library_cache) < original_len:
+            self._save_library_cache()
+            return {"success": True}
+        return {"success": False, "error": "Game not found"}
+
+    async def factory_reset(self) -> dict:
+        try:
+            self.library_cache = []
+            self.history = []
+            self.last_refresh = None
+            self.settings = {
+                "steam_api_key": "",
+                "steam_id": "",
+                "default_mode": "luck",
+                "default_filters": DEFAULT_SETTINGS["default_filters"]
+            }
+            self._save_settings()
+            self._save_library_cache()
+            self._save_history()
+            decky.logger.info("Factory reset completed")
+            return {"success": True}
+        except Exception as e:
+            decky.logger.error(f"Factory reset failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _get_gamescope_display(self) -> str:
+        gamescope_env = "/run/user/1000/gamescope-environment"
+        if os.path.exists(gamescope_env):
+            try:
+                with open(gamescope_env, 'r') as f:
+                    for line in f:
+                        if line.startswith('DISPLAY='):
+                            return line.strip().split('=', 1)[1]
+            except Exception:
+                pass
+        return ":1"
+
+    async def read_clipboard(self) -> dict:
+        import subprocess
+        display = self._get_gamescope_display()
+        xauth = "/home/deck/.Xauthority"
+        
+        methods = [
+            {
+                "cmd": f'DISPLAY={display} XAUTHORITY={xauth} xclip -selection clipboard -o',
+                "shell": True,
+                "user": "deck"
+            },
+            {
+                "cmd": ["xclip", "-selection", "clipboard", "-o"],
+                "shell": False,
+                "env": {"DISPLAY": display, "XAUTHORITY": xauth}
+            },
+            {
+                "cmd": ["wl-paste", "--no-newline"],
+                "shell": False,
+                "env": {}
+            },
+        ]
+        
+        for method in methods:
+            try:
+                if method.get("user") == "deck":
+                    result = subprocess.run(
+                        ["sudo", "-u", "deck", "bash", "-c", method["cmd"]],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                elif method.get("shell"):
+                    result = subprocess.run(
+                        method["cmd"],
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                else:
+                    env = os.environ.copy()
+                    env.update(method.get("env", {}))
+                    result = subprocess.run(
+                        method["cmd"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        env=env
+                    )
+                
+                if result.returncode == 0 and result.stdout:
+                    return {"success": True, "text": result.stdout.strip()}
+                    
+                decky.logger.debug(f"Clipboard method failed: rc={result.returncode}, stderr={result.stderr}")
+            except Exception as e:
+                decky.logger.debug(f"Clipboard method exception: {e}")
+                continue
+
+        return {"success": False, "error": "No clipboard tool available"}
+
+    async def clear_cache(self) -> dict:
+        try:
+            api_key = self.settings.get("steam_api_key", "")
+            steam_id = self.settings.get("steam_id", "")
+            self.library_cache = []
+            self.history = []
+            self.last_refresh = None
+            self.settings = {
+                "steam_api_key": api_key,
+                "steam_id": steam_id,
+                "default_mode": "luck",
+                "default_filters": DEFAULT_SETTINGS["default_filters"]
+            }
+            self._save_settings()
+            self._save_library_cache()
+            self._save_history()
+            decky.logger.info("Cache cleared (credentials preserved)")
+            return {"success": True}
+        except Exception as e:
+            decky.logger.error(f"Clear cache failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def update_non_steam_search_term(self, original_name: str, new_search_term: str) -> dict:
+        for game in self.library_cache:
+            if game.is_non_steam and game.original_name == original_name:
+                match = await self._search_steam_store(new_search_term)
+                if match:
+                    game.matched_appid = match.get("appid")
+                    game.match_status = "matched"
+                    game.name = new_search_term
+                    
+                    details = await self._fetch_game_details(match["appid"])
+                    if details:
+                        genres = details.get("genres", [])
+                        game.genres = [g.get("description", "") for g in genres]
+                        categories = details.get("categories", [])
+                        game.tags = [c.get("description", "") for c in categories]
+                    
+                    self._save_library_cache()
+                    return {"success": True, "game": game.to_dict()}
+                else:
+                    return {"success": False, "error": f"No match found for '{new_search_term}'"}
+        
+        return {"success": False, "error": "Game not found"}
