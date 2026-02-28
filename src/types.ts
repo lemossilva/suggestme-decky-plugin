@@ -43,6 +43,8 @@ export interface SuggestFilters {
   protondb_tier: string[];
   include_collections: string[];
   exclude_collections: string[];
+  include_collection_appids?: number[];
+  exclude_collection_appids?: number[];
 }
 
 export interface SuggestMeConfig {

@@ -728,10 +728,12 @@ export function getFilterSummary(filters: SuggestFilters): string {
     if (filters.installed_only) parts.push('Installed');
     if (filters.not_installed_only) parts.push('Not installed');
     if (filters.min_playtime) parts.push(`>${Math.round(filters.min_playtime / 60)}h`);
-    if (filters.include_genres.length) parts.push(`${filters.include_genres.length} genres`);
-    if (filters.exclude_genres.length) parts.push(`-${filters.exclude_genres.length} genres`);
-    if (filters.include_tags.length) parts.push(`${filters.include_tags.length} tags`);
-    if (filters.exclude_tags.length) parts.push(`-${filters.exclude_tags.length} tags`);
+    if (filters.include_genres?.length) parts.push(`${filters.include_genres.length} genres`);
+    if (filters.exclude_genres?.length) parts.push(`-${filters.exclude_genres.length} genres`);
+    if (filters.include_tags?.length) parts.push(`${filters.include_tags.length} features`);
+    if (filters.exclude_tags?.length) parts.push(`-${filters.exclude_tags.length} features`);
+    if (filters.include_community_tags?.length) parts.push(`${filters.include_community_tags.length} community tags`);
+    if (filters.exclude_community_tags?.length) parts.push(`-${filters.exclude_community_tags.length} community tags`);
     if (filters.deck_status?.length) parts.push(`${filters.deck_status.length} deck status`);
     if (filters.protondb_tier?.length) parts.push(`${filters.protondb_tier.length} ProtonDB`);
     if (filters.include_collections?.length) parts.push(`${filters.include_collections.length} collections`);
@@ -750,10 +752,12 @@ export function hasActiveFilters(filters: SuggestFilters): boolean {
         filters.not_installed_only ||
         filters.min_playtime !== undefined ||
         (filters.max_playtime !== undefined && filters.max_playtime > 0) ||
-        filters.include_genres.length > 0 ||
-        filters.exclude_genres.length > 0 ||
-        filters.include_tags.length > 0 ||
-        filters.exclude_tags.length > 0 ||
+        (filters.include_genres?.length || 0) > 0 ||
+        (filters.exclude_genres?.length || 0) > 0 ||
+        (filters.include_tags?.length || 0) > 0 ||
+        (filters.exclude_tags?.length || 0) > 0 ||
+        (filters.include_community_tags?.length || 0) > 0 ||
+        (filters.exclude_community_tags?.length || 0) > 0 ||
         (filters.deck_status?.length || 0) > 0 ||
         (filters.protondb_tier?.length || 0) > 0 ||
         (filters.include_collections?.length || 0) > 0 ||

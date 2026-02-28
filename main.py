@@ -706,7 +706,7 @@ class Plugin:
             })
             return {"success": False, "error": error_msg}
 
-    def _filter_candidates(self, games: list[Game], filters: dict, installed_appids: set[int] = None) -> list[Game]:
+    def _filter_candidates(self, games: list[Game], filters: dict, installed_appids: set[int] = None, user_collections: dict = None) -> list[Game]:
         candidates = []
         include_genres = set(g.lower() for g in filters.get("include_genres", []))
         exclude_genres = set(g.lower() for g in filters.get("exclude_genres", []))
@@ -714,6 +714,10 @@ class Plugin:
         exclude_tags = set(t.lower() for t in filters.get("exclude_tags", []))
         include_community_tags = set(t.lower() for t in filters.get("include_community_tags", []))
         exclude_community_tags = set(t.lower() for t in filters.get("exclude_community_tags", []))
+        include_collections = set(c.lower() for c in filters.get("include_collections", []))
+        exclude_collections = set(c.lower() for c in filters.get("exclude_collections", []))
+        include_collection_appids = filters.get("include_collection_appids")
+        exclude_collection_appids = filters.get("exclude_collection_appids")
         min_playtime = filters.get("min_playtime")
         max_playtime = filters.get("max_playtime")
         include_unplayed = filters.get("include_unplayed", True)
@@ -726,6 +730,23 @@ class Plugin:
         
         if installed_appids is None:
             installed_appids = set()
+
+        # Build sets of appids for collections if needed
+        allowed_by_collections = set()
+        excluded_by_collections = set()
+        
+        if include_collection_appids is not None or exclude_collection_appids is not None:
+            if include_collection_appids is not None:
+                allowed_by_collections.update(include_collection_appids)
+            if exclude_collection_appids is not None:
+                excluded_by_collections.update(exclude_collection_appids)
+        elif user_collections:
+            for col_name, appids in user_collections.items():
+                col_name_lower = col_name.lower()
+                if col_name_lower in include_collections:
+                    allowed_by_collections.update(appids)
+                if col_name_lower in exclude_collections:
+                    excluded_by_collections.update(appids)
 
         for game in games:
             if game.is_non_steam and game.match_status != "matched":
@@ -781,6 +802,13 @@ class Plugin:
             if protondb_filter:
                 if not game.protondb_tier or game.protondb_tier.lower() not in protondb_filter:
                     continue
+
+            # Collection filtering
+            if include_collections and game.appid not in allowed_by_collections:
+                continue
+                
+            if exclude_collections and game.appid in excluded_by_collections:
+                continue
 
             candidates.append(game)
 
@@ -897,7 +925,14 @@ class Plugin:
             decky.logger.info(f"[Filter Debug] deck_filter={deck_filter}, protondb_filter={protondb_filter}")
 
         installed_set = set(installed_appids) if installed_appids else set()
-        candidates = self._filter_candidates(self.library_cache, filters, installed_set)
+        
+        user_collections = None
+        include_cols = filters.get("include_collections", [])
+        exclude_cols = filters.get("exclude_collections", [])
+        if include_cols or exclude_cols:
+            user_collections = await self._get_user_collections()
+            
+        candidates = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
 
         mode_history = self._get_mode_history_appids(mode)
         fresh_candidates = [g for g in candidates if g.appid not in mode_history]

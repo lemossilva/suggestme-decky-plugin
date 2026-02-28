@@ -34,6 +34,29 @@ function getInstalledAppIds(): number[] {
   return [];
 }
 
+function getCollectionAppIds(collectionNames: string[]): number[] {
+  if (!collectionNames || collectionNames.length === 0) return [];
+  const appids: number[] = [];
+  try {
+    const store = (window as any).collectionStore;
+    if (store?.userCollections) {
+      for (const col of store.userCollections) {
+        const name = col?.displayName || col?.strName;
+        if (name && collectionNames.includes(name) && col.allApps) {
+          for (const app of col.allApps) {
+            if (app.appid || app.nAppID) {
+              appids.push(app.appid || app.nAppID);
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[SuggestMe] Failed to get collection appids:", e);
+  }
+  return [...new Set(appids)];
+}
+
 export function useSuggestion() {
   const [currentSuggestion, setCurrentSuggestion] = useState<SuggestionResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -48,10 +71,20 @@ export function useSuggestion() {
           installedAppIds = getInstalledAppIds();
         }
 
-        const result = await call<[string, SuggestFilters, number[]], SuggestionResult>(
+        // We resolve collection names to appids here in the frontend 
+        // to avoid VDF parsing issues in the backend
+        const enhancedFilters = { ...filters };
+        if (filters.include_collections?.length) {
+          enhancedFilters.include_collection_appids = getCollectionAppIds(filters.include_collections);
+        }
+        if (filters.exclude_collections?.length) {
+          enhancedFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
+        }
+
+        const result = await call<[string, any, number[]], SuggestionResult>(
           "get_suggestion",
           mode,
-          filters,
+          enhancedFilters,
           installedAppIds
         );
         setCurrentSuggestion(result);
