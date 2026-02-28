@@ -18,15 +18,20 @@ declare const appStore: {
   GetAppOverviewByAppID: (appid: number) => { m_gameid?: string; gameid?: string } | null;
 };
 
-import { FaMagic, FaCog, FaDice, FaCompass, FaBrain, FaLeaf, FaFilter, FaTimes, FaTrash, FaChevronRight, FaGamepad, FaSteam } from "react-icons/fa";
+import { FaMagic, FaCog, FaDice, FaCompass, FaBrain, FaLeaf, FaFilter, FaTimes, FaTrash, FaChevronRight, FaGamepad, FaSteam, FaListUl, FaBan } from "react-icons/fa";
 import { call } from "@decky/api";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { useLibraryStatus } from "../hooks/useLibraryStatus";
 import { useSuggestion } from "../hooks/useSuggestion";
+import { usePlayNext } from "../hooks/usePlayNext";
+import { useExcludedGames } from "../hooks/useExcludedGames";
+import { useFilterPresets } from "../hooks/useFilterPresets";
 import { SuggestionCard } from "./SuggestionCard";
 import { navigateToSettings } from "./SettingsModal";
 import { navigateToFilters, getFilterSummary, hasActiveFilters } from "./FiltersModal";
 import { navigateToNonSteamGames } from "./NonSteamGamesModal";
+import { navigateToPlayNext } from "./PlayNextModal";
+import { navigateToExcludedGames } from "./ExcludedGamesModal";
 import {
   SuggestMode,
   SuggestFilters,
@@ -85,11 +90,11 @@ const TabButton = ({ tab, active, onClick }: TabButtonProps) => {
       }}
     >
       {tab.icon}
-      <span style={{ 
-        fontSize: 10, 
-        whiteSpace: 'nowrap', 
-        overflow: 'hidden', 
-        textOverflow: 'ellipsis', 
+      <span style={{
+        fontSize: 10,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
         maxWidth: '100%',
         marginTop: 2
       }}>{tab.label}</span>
@@ -102,8 +107,12 @@ export function SuggestMeRoot() {
   const { status, availableGenres, availableTags, availableCommunityTags } = useLibraryStatus();
   const { isLoading: suggestionLoading, requestSuggestion, clearCurrentSuggestion } =
     useSuggestion();
+  const { count: playNextCount, addGame: addToPlayNext, removeGame: removeFromPlayNext, isInList: isInPlayNext } = usePlayNext();
+  const { excludeGame } = useExcludedGames();
+  const { getActivePreset } = useFilterPresets();
 
   const contentRef = useRef<HTMLDivElement>(null);
+  const activePreset = getActivePreset();
   const [activeTab, setActiveTab] = useState<TabId>(config.default_mode || "luck");
   const [filters, setFilters] = useState<SuggestFilters>(config.default_filters || DEFAULT_FILTERS);
   const [history, setHistory] = useState<Record<SuggestMode, HistoryEntry[]>>({
@@ -114,6 +123,7 @@ export function SuggestMeRoot() {
   });
   const [nonSteamInfo, setNonSteamInfo] = useState<NonSteamGamesInfo | null>(null);
   const [availableCollections, setAvailableCollections] = useState<string[]>([]);
+  const [justAddedToPlayNext, setJustAddedToPlayNext] = useState(false);
   const [suggestionsPerMode, setSuggestionsPerMode] = useState<Record<SuggestMode, SuggestionResult | null>>({
     luck: null,
     guided: null,
@@ -122,7 +132,7 @@ export function SuggestMeRoot() {
   });
 
   const filtersActive = hasActiveFilters(filters);
-  const filterSummary = getFilterSummary(filters);
+  const filterSummary = activePreset ? activePreset.label : getFilterSummary(filters);
   const currentModeSuggestion = suggestionsPerMode[activeTab];
   const steamGamesCount = status.steam_games_count || 0;
 
@@ -273,6 +283,29 @@ export function SuggestMeRoot() {
     }
   };
 
+  const handleAddToPlayNext = async () => {
+    if (currentModeSuggestion?.game) {
+      await addToPlayNext(currentModeSuggestion.game);
+      setJustAddedToPlayNext(true);
+      setTimeout(() => setJustAddedToPlayNext(false), 2000);
+    }
+  };
+
+  const handleRemoveCurrentFromPlayNext = async () => {
+    if (currentModeSuggestion?.game) {
+      await removeFromPlayNext(currentModeSuggestion.game.appid);
+    }
+  };
+
+  const handleExclude = async () => {
+    if (currentModeSuggestion?.game) {
+      await excludeGame(currentModeSuggestion.game);
+      handleReroll();
+    }
+  };
+
+  const currentGameInPlayNext = currentModeSuggestion?.game ? isInPlayNext(currentModeSuggestion.game.appid) : false;
+
   const currentHistory = history[activeTab] || [];
 
   if (configLoading) {
@@ -287,7 +320,7 @@ export function SuggestMeRoot() {
 
   return (
     <div ref={contentRef}>
-      {/* Header: Steam Count | Non-Steam Count | Settings */}
+      {/* Header: Steam | Non-Steam | spacer | Play Next | Excluded | Settings */}
       <div style={{ padding: '4px 16px 4px 16px' }}>
         <Focusable
           flow-children="row"
@@ -306,7 +339,7 @@ export function SuggestMeRoot() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 6,
+              gap: 4,
               padding: 6,
               backgroundColor: steamGamesCount > 0 ? '#4488aa22' : '#ffffff08',
               borderRadius: 10,
@@ -324,9 +357,9 @@ export function SuggestMeRoot() {
               e.target.style.borderColor = 'transparent';
             }}
           >
-            <FaSteam size={14} style={{ color: steamGamesCount > 0 ? '#4488aa' : '#666666' }} />
-            <span style={{ fontSize: 11, color: steamGamesCount > 0 ? '#4488aa' : '#666666', fontWeight: 500 }}>
-              {steamGamesCount > 0 ? `${steamGamesCount} Steam` : 'No Games'}
+            <FaSteam size={12} style={{ color: steamGamesCount > 0 ? '#4488aa' : '#666666' }} />
+            <span style={{ fontSize: 10, color: steamGamesCount > 0 ? '#4488aa' : '#666666', fontWeight: 500 }}>
+              {steamGamesCount > 0 ? steamGamesCount : '0'}
             </span>
           </Focusable>
 
@@ -338,11 +371,9 @@ export function SuggestMeRoot() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 6,
+              gap: 4,
               padding: 6,
-              backgroundColor: (nonSteamInfo?.total || 0) > 0 
-                ? (nonSteamInfo?.unmatched || 0) > 0 ? '#aa884422' : '#6688aa22'
-                : '#ffffff08',
+              backgroundColor: (nonSteamInfo?.total || 0) > 0 ? '#aa886622' : '#ffffff08',
               borderRadius: 10,
               border: '2px solid transparent',
               cursor: 'pointer',
@@ -354,28 +385,73 @@ export function SuggestMeRoot() {
               e.target.style.borderColor = 'white';
             }}
             onBlur={(e: any) => {
-              const hasNonSteam = (nonSteamInfo?.total || 0) > 0;
-              const hasUnmatched = (nonSteamInfo?.unmatched || 0) > 0;
-              e.target.style.backgroundColor = hasNonSteam 
-                ? (hasUnmatched ? '#aa884422' : '#6688aa22')
-                : '#ffffff08';
+              e.target.style.backgroundColor = (nonSteamInfo?.total || 0) > 0 ? '#aa886622' : '#ffffff08';
               e.target.style.borderColor = 'transparent';
             }}
           >
-            <FaGamepad size={14} style={{ 
-              color: (nonSteamInfo?.total || 0) > 0 
-                ? ((nonSteamInfo?.unmatched || 0) > 0 ? '#aa8844' : '#6688aa')
-                : '#666666' 
-            }} />
-            <span style={{ 
-              fontSize: 11, 
-              color: (nonSteamInfo?.total || 0) > 0 
-                ? ((nonSteamInfo?.unmatched || 0) > 0 ? '#aa8844' : '#6688aa')
-                : '#666666',
-              fontWeight: 500 
-            }}>
-              {(nonSteamInfo?.matched || 0) > 0 ? `${nonSteamInfo?.matched} Non-Steam` : 'Non-Steam'}
+            <FaGamepad size={12} style={{ color: (nonSteamInfo?.total || 0) > 0 ? '#aa8866' : '#666666' }} />
+            <span style={{ fontSize: 10, color: (nonSteamInfo?.total || 0) > 0 ? '#aa8866' : '#666666', fontWeight: 500 }}>
+              {nonSteamInfo?.matched || 0}
             </span>
+          </Focusable>
+
+          {/* Vertical Spacer */}
+          <div style={{ width: 1, backgroundColor: '#ffffff22', margin: '4px 0' }} />
+
+          {/* Play Next Indicator */}
+          <Focusable
+            onActivate={navigateToPlayNext}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+              padding: 6,
+              backgroundColor: playNextCount > 0 ? '#88aa8822' : '#ffffff08',
+              borderRadius: 10,
+              border: '2px solid transparent',
+              cursor: 'pointer',
+              transition: 'all 0.1s ease-in-out'
+            }}
+            onFocus={(e: any) => {
+              e.target.style.backgroundColor = '#1a5a7a';
+              e.target.style.borderColor = 'white';
+            }}
+            onBlur={(e: any) => {
+              e.target.style.backgroundColor = playNextCount > 0 ? '#88aa8822' : '#ffffff08';
+              e.target.style.borderColor = 'transparent';
+            }}
+          >
+            <FaListUl size={12} style={{ color: playNextCount > 0 ? '#88aa88' : '#666666' }} />
+            {playNextCount > 0 && (
+              <span style={{ fontSize: 10, color: '#88aa88', fontWeight: 600 }}>{playNextCount}</span>
+            )}
+          </Focusable>
+
+          {/* Excluded Games Button */}
+          <Focusable
+            onActivate={navigateToExcludedGames}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 6,
+              backgroundColor: '#ffffff08',
+              borderRadius: 10,
+              border: '2px solid transparent',
+              cursor: 'pointer',
+              transition: 'all 0.1s ease-in-out'
+            }}
+            onFocus={(e: any) => {
+              e.target.style.backgroundColor = '#1a5a7a';
+              e.target.style.borderColor = 'white';
+            }}
+            onBlur={(e: any) => {
+              e.target.style.backgroundColor = '#ffffff08';
+              e.target.style.borderColor = 'transparent';
+            }}
+          >
+            <FaBan size={12} style={{ color: '#ff6666' }} />
           </Focusable>
 
           {/* Settings Button (icon only) */}
@@ -467,102 +543,114 @@ export function SuggestMeRoot() {
       {hasCredentials && status.total_games > 0 && (
         <>
           {/* Mode Tabs */}
-          <PanelSection>
-            <PanelSectionRow>
-              <Focusable
-                flow-children="row"
-                style={{
-                  display: 'flex',
-                  gap: 4,
-                  width: '100%',
-                  padding: 4,
-                  backgroundColor: '#ffffff11',
-                  borderRadius: 12
-                }}
-              >
-                {TABS.map(tab => (
-                  <TabButton
-                    key={tab.id}
-                    tab={tab}
-                    active={activeTab === tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                  />
-                ))}
-              </Focusable>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '4px 0' }}>
-                {MODE_DESCRIPTIONS[activeTab]}
-              </div>
-            </PanelSectionRow>
-          </PanelSection>
+          <div style={{ marginBottom: -16 }}>
+            <PanelSection>
+              <PanelSectionRow>
+                <Focusable
+                  flow-children="row"
+                  style={{
+                    display: 'flex',
+                    gap: 4,
+                    width: '100%',
+                    padding: 4,
+                    marginTop: 8,
+                    paddingBottom: 0,
+                    backgroundColor: '#ffffff11',
+                    borderRadius: 12
+                  }}
+                >
+                  {TABS.map(tab => (
+                    <TabButton
+                      key={tab.id}
+                      tab={tab}
+                      active={activeTab === tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                    />
+                  ))}
+                </Focusable>
+              </PanelSectionRow>
+              <PanelSectionRow>
+                <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '8px 0' }}>
+                  {MODE_DESCRIPTIONS[activeTab]}
+                </div>
+              </PanelSectionRow>
+            </PanelSection>
+          </div>
+
+          {/* Divider */}
+          <div style={{
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            margin: '0 16px'
+          }} />
 
           {/* Filters Bar */}
-          <div style={{ padding: '0 16px', marginBottom: 8 }}>
+          <div style={{ padding: '0 16px', marginTop: 8, marginBottom: 8 }}>  
             <Focusable
               flow-children="row"
               style={{
                 display: 'flex',
+                alignItems: 'stretch',
                 gap: 8,
                 width: '100%',
                 boxSizing: 'border-box'
               }}
             >
+              <Focusable
+                onActivate={handleOpenFilters}
+                onClick={handleOpenFilters}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '6px 10px',
+                  backgroundColor: filtersActive ? '#4488aa33' : '#ffffff11',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  border: '2px solid transparent',
+                  minWidth: 0,
+                  overflow: 'hidden'
+                }}
+                onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+              >
+                <FaFilter size={12} style={{ color: filtersActive ? '#4488aa' : '#888' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: filtersActive ? 600 : 400 }}>Filters</div>
+                  <div style={{ fontSize: 10, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {filterSummary}
+                  </div>
+                </div>
+                <FaChevronRight size={10} style={{ color: '#666' }} />
+              </Focusable>
+              {filtersActive && (
                 <Focusable
-                  onActivate={handleOpenFilters}
-                  onClick={handleOpenFilters}
+                  onActivate={handleClearFilters}
+                  onClick={handleClearFilters}
                   style={{
-                    flex: 1,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
-                    padding: '6px 10px',
-                    backgroundColor: filtersActive ? '#4488aa33' : '#ffffff11',
+                    justifyContent: 'center',
+                    alignSelf: 'stretch',
+                    padding: '0px 10px',
+                    backgroundColor: '#ff666633',
                     borderRadius: 8,
                     cursor: 'pointer',
                     border: '2px solid transparent',
-                    minWidth: 0,
-                    overflow: 'hidden'
+                    color: '#ff6666'
                   }}
                   onFocus={(e: any) => e.target.style.borderColor = 'white'}
                   onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                 >
-                  <FaFilter size={12} style={{ color: filtersActive ? '#4488aa' : '#888' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: filtersActive ? 600 : 400 }}>Filters</div>
-                    <div style={{ fontSize: 10, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {filterSummary}
-                    </div>
-                  </div>
-                  <FaChevronRight size={10} style={{ color: '#666' }} />
+                  <FaTimes size={12} />
                 </Focusable>
-                {filtersActive && (
-                  <Focusable
-                    onActivate={handleClearFilters}
-                    onClick={handleClearFilters}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: '6px 10px',
-                      backgroundColor: '#ff666633',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                      border: '2px solid transparent',
-                      color: '#ff6666'
-                    }}
-                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                  >
-                    <FaTimes size={12} />
-                  </Focusable>
-                )}
+              )}
             </Focusable>
           </div>
 
           {/* Suggestion Area - Button at top */}
           <PanelSection>
-            <div style={{ padding: '8px 0' }}>
+            <div style={{ padding: '8px 0', paddingTop: 0, marginTop: 0 }}>
               <PanelSectionRow>
                 <ButtonItem
                   layout="below"
@@ -593,15 +681,69 @@ export function SuggestMeRoot() {
             )}
 
             {currentModeSuggestion?.game && (
-              <SuggestionCard
-                game={currentModeSuggestion.game}
-                modeUsed={currentModeSuggestion.mode_used}
-                candidatesCount={currentModeSuggestion.candidates_count}
-                onReroll={handleReroll}
-                onLaunch={handleLaunch}
-                onClear={handleClearSuggestion}
-                isLoading={suggestionLoading}
-              />
+              <>
+                <SuggestionCard
+                  game={currentModeSuggestion.game}
+                  modeUsed={currentModeSuggestion.mode_used}
+                  candidatesCount={currentModeSuggestion.candidates_count}
+                  excludedCount={currentModeSuggestion.excluded_count}
+                  onReroll={handleReroll}
+                  onLaunch={handleLaunch}
+                  onClear={handleClearSuggestion}
+                  isLoading={suggestionLoading}
+                />
+                <PanelSectionRow>
+                  <Focusable
+                    flow-children="row"
+                    style={{ display: 'flex', gap: 8, width: '100%', marginTop: 8, boxSizing: 'border-box' }}
+                  >
+                    <Focusable
+                      onActivate={currentGameInPlayNext && !justAddedToPlayNext ? handleRemoveCurrentFromPlayNext : handleAddToPlayNext}
+                      style={{
+                        flex: '1 1 0',
+                        minWidth: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        padding: '10px 8px',
+                        backgroundColor: justAddedToPlayNext ? '#88ff8833' : (currentGameInPlayNext ? '#88aa8833' : '#ffffff11'),
+                        borderRadius: 8,
+                        border: '2px solid transparent',
+                        cursor: 'pointer'
+                      }}
+                      onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                      onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                    >
+                      <FaListUl size={12} style={{ color: justAddedToPlayNext ? '#88ff88' : (currentGameInPlayNext ? '#88aa88' : '#888'), flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: justAddedToPlayNext ? '#88ff88' : (currentGameInPlayNext ? '#88aa88' : '#aaa'), whiteSpace: 'nowrap' }}>
+                        {justAddedToPlayNext ? 'Added!' : (currentGameInPlayNext ? 'Remove' : 'Play Next')}
+                      </span>
+                    </Focusable>
+                    <Focusable
+                      onActivate={handleExclude}
+                      style={{
+                        flex: '1 1 0',
+                        minWidth: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        padding: '10px 8px',
+                        backgroundColor: '#ff666622',
+                        borderRadius: 8,
+                        border: '2px solid transparent',
+                        cursor: 'pointer'
+                      }}
+                      onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                      onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                    >
+                      <FaBan size={12} style={{ color: '#ff6666', flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: '#ff6666', whiteSpace: 'nowrap' }}>Never Show</span>
+                    </Focusable>
+                  </Focusable>
+                </PanelSectionRow>
+              </>
             )}
           </PanelSection>
 

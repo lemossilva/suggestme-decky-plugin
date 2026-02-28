@@ -1,7 +1,7 @@
 # SuggestMe
 
 ![SuggestMe](https://img.shields.io/badge/Decky-Plugin-blue)
-![Version](https://img.shields.io/badge/release-v1.0.0-green)
+![Version](https://img.shields.io/badge/release-v1.0.1-green)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 
 ![SuggestMe Promo](assets/promo.png)
@@ -39,6 +39,8 @@ SuggestMe is a Decky Loader plugin that helps you decide what game to play next 
 
 ### History & UI Features
 - **Track history** - Previously suggested games are tracked per-mode with quick actions to launch them
+- **Play Next & Excluded Lists** - Add games to a queue to play later, or exclude games from ever being suggested
+- **Steam Collections Integration** - Sync your Play Next queue and Excluded games directly to native Steam Collections
 - **Steam UI integration** - "Launch Game" button takes you directly to the game's library page
 - **Native feel** - Fast, native Decky UI with gamepad-friendly navigation
 - **Easy setup** - Dedicated paste buttons for API key and Steam ID in settings

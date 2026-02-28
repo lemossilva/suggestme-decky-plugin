@@ -5,12 +5,14 @@ import {
     PanelSectionRow,
     SidebarNavigation,
     SliderField,
+    TextField,
     ToggleField,
 } from "@decky/ui";
 import { routerHook } from "@decky/api";
 import { useState } from "react";
-import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers } from "react-icons/fa";
+import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash } from "react-icons/fa";
 import { SuggestFilters, DEFAULT_FILTERS } from "../types";
+import { useFilterPresets } from "../hooks/useFilterPresets";
 
 export const FILTERS_ROUTE = '/suggestme/filters';
 
@@ -569,6 +571,239 @@ const DeckCompatPage = ({ filters, setFilters }: { filters: SuggestFilters; setF
     );
 };
 
+const PresetsPage = ({ 
+    filters, 
+    setFilters,
+    onPresetChange
+}: { 
+    filters: SuggestFilters; 
+    setFilters: (f: SuggestFilters) => void;
+    onPresetChange: (label: string | null) => void;
+}) => {
+    const { presets, activeIndex, savePreset, renamePreset, deletePreset, setActive } = useFilterPresets();
+    const [editingSlot, setEditingSlot] = useState<number | null>(null);
+    const [editLabel, setEditLabel] = useState("");
+    const [saveError, setSaveError] = useState<string | null>(null);
+
+    const handleSaveToSlot = async (slotIndex: number) => {
+        const existing = presets[slotIndex];
+        const label = existing?.label || `Preset ${slotIndex + 1}`;
+        const result = await savePreset(slotIndex, label, filters);
+        if (result.success) {
+            onPresetChange(label);
+            setSaveError(null);
+        } else {
+            setSaveError(result.error || "Failed to save");
+            setTimeout(() => setSaveError(null), 3000);
+        }
+    };
+
+    const handleLoadPreset = async (slotIndex: number) => {
+        const preset = presets[slotIndex];
+        if (preset) {
+            setFilters(preset.filters);
+            await setActive(slotIndex);
+            onPresetChange(preset.label);
+        }
+    };
+
+    const handleStartRename = (slotIndex: number) => {
+        const preset = presets[slotIndex];
+        if (preset) {
+            setEditingSlot(slotIndex);
+            setEditLabel(preset.label);
+        }
+    };
+
+    const handleFinishRename = async () => {
+        if (editingSlot !== null && editLabel.trim()) {
+            await renamePreset(editingSlot, editLabel.trim());
+        }
+        setEditingSlot(null);
+        setEditLabel("");
+    };
+
+    const handleDelete = async (slotIndex: number) => {
+        await deletePreset(slotIndex);
+        if (activeIndex === slotIndex) {
+            onPresetChange(null);
+        }
+    };
+
+    return (
+        <div style={{ padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
+            <PanelSection title="Filter Presets">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>
+                        Save up to 5 filter combinations. Load a preset to apply its filters.
+                    </div>
+                </PanelSectionRow>
+                {saveError && (
+                    <PanelSectionRow>
+                        <div style={{ 
+                            fontSize: 11, 
+                            color: '#ff6666', 
+                            padding: '8px 12px',
+                            backgroundColor: '#ff666622',
+                            borderRadius: 6,
+                            marginBottom: 8
+                        }}>
+                            {saveError}
+                        </div>
+                    </PanelSectionRow>
+                )}
+                {presets.map((preset, index) => (
+                    <PanelSectionRow key={index}>
+                        <Focusable
+                            flow-children="row"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                width: '100%'
+                            }}
+                        >
+                            {preset ? (
+                                <>
+                                    {editingSlot === index ? (
+                                        <Focusable
+                                            flow-children="row"
+                                            style={{
+                                                flex: 1,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 8
+                                            }}
+                                        >
+                                            <div style={{ flex: 1 }}>
+                                                <TextField
+                                                    value={editLabel}
+                                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditLabel(e.target.value)}
+                                                />
+                                            </div>
+                                            <Focusable
+                                                onActivate={handleFinishRename}
+                                                style={{
+                                                    padding: '8px',
+                                                    backgroundColor: '#88ff8822',
+                                                    borderRadius: 6,
+                                                    cursor: 'pointer',
+                                                    border: '2px solid transparent'
+                                                }}
+                                                onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                            >
+                                                <FaCheck size={12} style={{ color: '#88ff88' }} />
+                                            </Focusable>
+                                            <Focusable
+                                                onActivate={() => { setEditingSlot(null); setEditLabel(""); }}
+                                                style={{
+                                                    padding: '8px',
+                                                    backgroundColor: '#ff666622',
+                                                    borderRadius: 6,
+                                                    cursor: 'pointer',
+                                                    border: '2px solid transparent'
+                                                }}
+                                                onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                            >
+                                                <FaTimes size={12} style={{ color: '#ff6666' }} />
+                                            </Focusable>
+                                        </Focusable>
+                                    ) : (
+                                        <Focusable
+                                            onActivate={() => handleLoadPreset(index)}
+                                            style={{
+                                                flex: 1,
+                                                padding: '8px 12px',
+                                                backgroundColor: activeIndex === index ? '#4488aa33' : '#ffffff11',
+                                                borderRadius: 8,
+                                                cursor: 'pointer',
+                                                border: '2px solid transparent',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 8
+                                            }}
+                                            onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                            onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                        >
+                                            {activeIndex === index && <FaCheck size={10} style={{ color: '#4488aa' }} />}
+                                            <span style={{ fontSize: 13 }}>{preset.label}</span>
+                                        </Focusable>
+                                    )}
+                                    <Focusable
+                                        onActivate={() => handleStartRename(index)}
+                                        style={{
+                                            padding: '8px',
+                                            backgroundColor: '#ffffff11',
+                                            borderRadius: 6,
+                                            cursor: 'pointer',
+                                            border: '2px solid transparent'
+                                        }}
+                                        onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                        onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                    >
+                                        <FaEdit size={12} style={{ color: '#888' }} />
+                                    </Focusable>
+                                    <Focusable
+                                        onActivate={() => handleSaveToSlot(index)}
+                                        style={{
+                                            padding: '8px',
+                                            backgroundColor: '#4488aa22',
+                                            borderRadius: 6,
+                                            cursor: 'pointer',
+                                            border: '2px solid transparent'
+                                        }}
+                                        onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                        onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                    >
+                                        <FaSave size={12} style={{ color: '#4488aa' }} />
+                                    </Focusable>
+                                    <Focusable
+                                        onActivate={() => handleDelete(index)}
+                                        style={{
+                                            padding: '8px',
+                                            backgroundColor: '#ff666622',
+                                            borderRadius: 6,
+                                            cursor: 'pointer',
+                                            border: '2px solid transparent'
+                                        }}
+                                        onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                        onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                    >
+                                        <FaTrash size={12} style={{ color: '#ff6666' }} />
+                                    </Focusable>
+                                </>
+                            ) : (
+                                <Focusable
+                                    onActivate={() => handleSaveToSlot(index)}
+                                    style={{
+                                        flex: 1,
+                                        padding: '8px 12px',
+                                        backgroundColor: '#ffffff08',
+                                        borderRadius: 8,
+                                        cursor: 'pointer',
+                                        border: '2px solid transparent',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        color: '#666'
+                                    }}
+                                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                >
+                                    <FaSave size={12} />
+                                    <span style={{ fontSize: 12 }}>Save to Slot {index + 1}</span>
+                                </Focusable>
+                            )}
+                        </Focusable>
+                    </PanelSectionRow>
+                ))}
+            </PanelSection>
+        </div>
+    );
+};
+
 export const FiltersPage = () => {
     const props = currentFiltersProps;
     if (!props) {
@@ -594,6 +829,11 @@ export const FiltersPage = () => {
     };
 
     const pages = [
+        {
+            title: "Presets",
+            icon: <FaSave size={16} />,
+            content: <PresetsPage filters={localFilters} setFilters={setLocalFilters} onPresetChange={() => {}} />
+        },
         {
             title: "Source",
             icon: <FaExchangeAlt size={16} />,

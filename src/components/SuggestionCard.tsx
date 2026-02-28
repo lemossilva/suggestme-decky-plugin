@@ -6,6 +6,7 @@ interface SuggestionCardProps {
   game: Game;
   modeUsed: SuggestMode;
   candidatesCount: number;
+  excludedCount?: number;
   onReroll: () => void;
   onLaunch: () => void;
   onClear: () => void;
@@ -16,6 +17,7 @@ export function SuggestionCard({
   game,
   modeUsed,
   candidatesCount,
+  excludedCount,
   onReroll,
   onLaunch,
   onClear,
@@ -119,7 +121,7 @@ export function SuggestionCard({
             marginBottom: "12px",
           }}
         >
-          {MODE_LABELS[modeUsed]} • {candidatesCount} candidates
+          {MODE_LABELS[modeUsed]} • {candidatesCount} candidates{excludedCount ? ` • ${excludedCount} excluded` : ''}
         </div>
 
         <PanelSectionRow>

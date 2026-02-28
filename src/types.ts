@@ -57,6 +57,7 @@ export interface SuggestMeConfig {
 export interface SuggestionResult {
   game: Game | null;
   candidates_count: number;
+  excluded_count?: number;
   mode_used: SuggestMode;
   error?: string;
 }
@@ -103,6 +104,36 @@ export const DEFAULT_FILTERS: SuggestFilters = {
   include_collections: [],
   exclude_collections: [],
 };
+
+export interface FilterPreset {
+  id: number;
+  label: string;
+  filters: SuggestFilters;
+}
+
+export interface FilterPresetsState {
+  presets: (FilterPreset | null)[];
+  active_index: number | null;
+}
+
+export interface PlayNextEntry {
+  appid: number;
+  name: string;
+  is_non_steam: boolean;
+  matched_appid?: number;
+  playtime_forever: number;
+  added_at: number;
+}
+
+export interface ExcludedGame {
+  appid: number;
+  name: string;
+  is_non_steam: boolean;
+  matched_appid?: number;
+  playtime_forever: number;
+  deck_status: string;
+  excluded_at: number;
+}
 
 export const MODE_LABELS: Record<SuggestMode, string> = {
   guided: "Guided",

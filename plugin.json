@@ -1,12 +1,17 @@
 {
   "name": "SuggestMe",
   "author": "Guilherme Lemos",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "main.py",
   "flags": [],
   "api_version": 1,
   "publish": {
-    "tags": ["game-library", "suggestion", "recommendations", "steam"],
+    "tags": [
+      "game-library",
+      "suggestion",
+      "recommendations",
+      "steam"
+    ],
     "description": "Smart game suggestion from your Steam library, native to Steam Deck.",
     "image": "https://raw.githubusercontent.com/lemossilva/suggestme-decky-plugin/main/assets/promo.png"
   }

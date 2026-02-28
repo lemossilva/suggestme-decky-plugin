@@ -136,11 +136,26 @@ const CredentialsPage = () => {
     const [apiKey, setApiKey] = useState(config.steam_api_key || "");
     const [steamId, setSteamId] = useState(config.steam_id || "");
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
+    const [detectedId, setDetectedId] = useState<string | null>(null);
 
     useEffect(() => {
         setApiKey(config.steam_api_key || "");
         setSteamId(config.steam_id || "");
     }, [config.steam_api_key, config.steam_id]);
+
+    useEffect(() => {
+        const checkDetected = async () => {
+            try {
+                const result = await call<[], { detected: boolean; steam_id: string }>("get_detected_steam_id");
+                if (result?.detected && result.steam_id) {
+                    setDetectedId(result.steam_id);
+                }
+            } catch (e) {
+                console.debug("[SuggestMe] Failed to get detected Steam ID:", e);
+            }
+        };
+        checkDetected();
+    }, []);
 
     const apiKeyValidation = validateSteamApiKey(apiKey);
     const steamIdValidation = detectSteamIdFormat(steamId);
@@ -235,6 +250,24 @@ const CredentialsPage = () => {
             </PanelSection>
 
             <PanelSection title="Steam ID 64">
+                {detectedId && steamId === detectedId && (
+                    <PanelSectionRow>
+                        <Focusable style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '8px 12px',
+                            backgroundColor: '#88ff8822',
+                            borderRadius: 8,
+                            marginBottom: 8
+                        }}>
+                            <FaCheck size={12} style={{ color: '#88ff88' }} />
+                            <span style={{ fontSize: 11, color: '#88ff88' }}>
+                                Auto-detected from local Steam files
+                            </span>
+                        </Focusable>
+                    </PanelSectionRow>
+                )}
                 <PanelSectionRow>
                     <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>
                         Your 17-digit Steam ID (starts with 7656119...). Find it at:
@@ -561,8 +594,8 @@ const AboutPage = () => {
             <PanelSection>
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
-                        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
-                            SuggestMe v1.0.0
+                        <div style={{ fontSize: 13, marginBottom: 8 }}>
+                            SuggestMe (v1.0.1) is a smart game recommender for your Steam library.
                         </div>
                         <div style={{ fontSize: 12, color: '#888' }}>
                             By Guilherme Lemos

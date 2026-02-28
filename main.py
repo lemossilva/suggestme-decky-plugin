@@ -99,6 +99,58 @@ class SuggestionHistoryEntry:
 SETTINGS_FILE = "settings.json"
 LIBRARY_CACHE_FILE = "library_cache.json"
 HISTORY_FILE = "history.json"
+PLAY_NEXT_FILE = "play_next.json"
+EXCLUDED_GAMES_FILE = "excluded_games.json"
+
+
+@dataclass
+class PlayNextEntry:
+    appid: int
+    name: str
+    is_non_steam: bool = False
+    matched_appid: Optional[int] = None
+    playtime_forever: int = 0
+    added_at: int = 0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PlayNextEntry":
+        return cls(
+            appid=data.get("appid", 0),
+            name=data.get("name", "Unknown"),
+            is_non_steam=data.get("is_non_steam", False),
+            matched_appid=data.get("matched_appid"),
+            playtime_forever=data.get("playtime_forever", 0),
+            added_at=data.get("added_at", 0),
+        )
+
+
+@dataclass
+class ExcludedGame:
+    appid: int
+    name: str
+    is_non_steam: bool = False
+    matched_appid: Optional[int] = None
+    playtime_forever: int = 0
+    deck_status: str = ""
+    excluded_at: int = 0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ExcludedGame":
+        return cls(
+            appid=data.get("appid", 0),
+            name=data.get("name", "Unknown"),
+            is_non_steam=data.get("is_non_steam", False),
+            matched_appid=data.get("matched_appid"),
+            playtime_forever=data.get("playtime_forever", 0),
+            deck_status=data.get("deck_status", ""),
+            excluded_at=data.get("excluded_at", 0),
+        )
 
 DEFAULT_SETTINGS = {
     "steam_api_key": "",
@@ -121,6 +173,8 @@ DEFAULT_SETTINGS = {
         "include_collections": [],
         "exclude_collections": [],
     },
+    "filter_presets": [None, None, None, None, None],
+    "active_preset_index": None,
 }
 
 
@@ -128,6 +182,8 @@ class Plugin:
     settings: dict = {}
     library_cache: list[Game] = []
     history: list[SuggestionHistoryEntry] = []
+    play_next_list: list[PlayNextEntry] = []
+    excluded_games: list[ExcludedGame] = []
     last_refresh: Optional[int] = None
     is_refreshing: bool = False
     refresh_error: Optional[str] = None
@@ -140,6 +196,56 @@ class Plugin:
 
     def _get_history_path(self) -> str:
         return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, HISTORY_FILE)
+
+    def _get_play_next_path(self) -> str:
+        return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, PLAY_NEXT_FILE)
+
+    def _get_excluded_games_path(self) -> str:
+        return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, EXCLUDED_GAMES_FILE)
+
+    def _load_play_next(self) -> list[PlayNextEntry]:
+        path = self._get_play_next_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                    return [PlayNextEntry.from_dict(e) for e in data]
+            except Exception as e:
+                decky.logger.error(f"Failed to load play next list: {e}")
+        return []
+
+    def _save_play_next(self) -> bool:
+        path = self._get_play_next_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                json.dump([e.to_dict() for e in self.play_next_list], f, indent=2)
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to save play next list: {e}")
+            return False
+
+    def _load_excluded_games(self) -> list[ExcludedGame]:
+        path = self._get_excluded_games_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                    return [ExcludedGame.from_dict(e) for e in data]
+            except Exception as e:
+                decky.logger.error(f"Failed to load excluded games: {e}")
+        return []
+
+    def _save_excluded_games(self) -> bool:
+        path = self._get_excluded_games_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                json.dump([e.to_dict() for e in self.excluded_games], f, indent=2)
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to save excluded games: {e}")
+            return False
 
     def _load_settings(self) -> dict:
         path = self._get_settings_path()
@@ -229,11 +335,62 @@ class Plugin:
         self.history = self.history[:50]
         self._save_history()
 
+    def _detect_steam_id(self) -> Optional[str]:
+        try:
+            loginusers_paths = [
+                os.path.expanduser("~/.steam/steam/config/loginusers.vdf"),
+                os.path.expanduser("~/.local/share/Steam/config/loginusers.vdf"),
+            ]
+            
+            for path in loginusers_paths:
+                if os.path.exists(path):
+                    try:
+                        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        
+                        import re
+                        user_pattern = r'"(\d{17})"\s*\{[^}]*"MostRecent"\s*"1"'
+                        match = re.search(user_pattern, content, re.DOTALL)
+                        if match:
+                            steam_id = match.group(1)
+                            if steam_id.startswith("7656"):
+                                decky.logger.info(f"Auto-detected Steam ID: {steam_id[:8]}...")
+                                return steam_id
+                        
+                        fallback_pattern = r'"(7656\d{13})"'
+                        matches = re.findall(fallback_pattern, content)
+                        if matches:
+                            steam_id = matches[0]
+                            decky.logger.info(f"Fallback detected Steam ID: {steam_id[:8]}...")
+                            return steam_id
+                    except Exception as e:
+                        decky.logger.debug(f"Failed to parse {path}: {e}")
+        except Exception as e:
+            decky.logger.warning(f"Steam ID detection failed: {e}")
+        return None
+
+    async def get_detected_steam_id(self) -> dict:
+        steam_id = self._detect_steam_id()
+        return {
+            "detected": steam_id is not None,
+            "steam_id": steam_id or ""
+        }
+
     async def _main(self):
         decky.logger.info("SuggestMe plugin loaded")
         self.settings = self._load_settings()
         self.library_cache, self.last_refresh = self._load_library_cache()
         self.history = self._load_history()
+        self.play_next_list = self._load_play_next()
+        self.excluded_games = self._load_excluded_games()
+        
+        if not self.settings.get("steam_id"):
+            detected_id = self._detect_steam_id()
+            if detected_id:
+                self.settings["steam_id"] = detected_id
+                self._save_settings()
+                decky.logger.info("Auto-populated Steam ID from local files")
+        
         decky.logger.info(f"Loaded {len(self.library_cache)} games from cache")
 
     async def _unload(self):
@@ -265,6 +422,176 @@ class Plugin:
         self.settings["default_filters"] = filters
         success = self._save_settings()
         return {"success": success}
+
+    async def get_filter_presets(self) -> dict:
+        presets = self.settings.get("filter_presets", [None] * 5)
+        active_index = self.settings.get("active_preset_index")
+        return {
+            "presets": presets,
+            "active_index": active_index
+        }
+
+    async def save_filter_preset(self, slot_index: int, label: str, filters: dict) -> dict:
+        if slot_index < 0 or slot_index >= 5:
+            return {"success": False, "error": "Invalid slot index"}
+        
+        presets = self.settings.get("filter_presets", [None] * 5)
+        while len(presets) < 5:
+            presets.append(None)
+        
+        for i, existing in enumerate(presets):
+            if existing and i != slot_index:
+                if existing.get("filters") == filters:
+                    return {"success": False, "error": f"Duplicate of preset '{existing.get('label', 'Unnamed')}'"}
+        
+        presets[slot_index] = {
+            "id": slot_index,
+            "label": label,
+            "filters": filters
+        }
+        self.settings["filter_presets"] = presets
+        self.settings["active_preset_index"] = slot_index
+        success = self._save_settings()
+        return {"success": success}
+
+    async def rename_filter_preset(self, slot_index: int, new_label: str) -> dict:
+        if slot_index < 0 or slot_index >= 5:
+            return {"success": False, "error": "Invalid slot index"}
+        
+        presets = self.settings.get("filter_presets", [None] * 5)
+        if not presets[slot_index]:
+            return {"success": False, "error": "Preset slot is empty"}
+        
+        presets[slot_index]["label"] = new_label
+        self.settings["filter_presets"] = presets
+        success = self._save_settings()
+        return {"success": success}
+
+    async def delete_filter_preset(self, slot_index: int) -> dict:
+        if slot_index < 0 or slot_index >= 5:
+            return {"success": False, "error": "Invalid slot index"}
+        
+        presets = self.settings.get("filter_presets", [None] * 5)
+        presets[slot_index] = None
+        self.settings["filter_presets"] = presets
+        
+        if self.settings.get("active_preset_index") == slot_index:
+            self.settings["active_preset_index"] = None
+        
+        success = self._save_settings()
+        return {"success": success}
+
+    async def set_active_preset(self, slot_index: Optional[int]) -> dict:
+        if slot_index is not None and (slot_index < 0 or slot_index >= 5):
+            return {"success": False, "error": "Invalid slot index"}
+        
+        self.settings["active_preset_index"] = slot_index
+        success = self._save_settings()
+        return {"success": success}
+
+    async def get_play_next_list(self) -> dict:
+        return {
+            "games": [e.to_dict() for e in self.play_next_list],
+            "count": len(self.play_next_list)
+        }
+
+    async def add_to_play_next(self, game_data: dict) -> dict:
+        appid = game_data.get("appid")
+        if not appid:
+            return {"success": False, "error": "Missing appid"}
+        
+        if any(e.appid == appid for e in self.play_next_list):
+            return {"success": False, "error": "Game already in list"}
+        
+        entry = PlayNextEntry(
+            appid=appid,
+            name=game_data.get("name", "Unknown"),
+            is_non_steam=game_data.get("is_non_steam", False),
+            matched_appid=game_data.get("matched_appid"),
+            playtime_forever=game_data.get("playtime_forever", 0),
+            added_at=int(time.time())
+        )
+        self.play_next_list.append(entry)
+        success = self._save_play_next()
+        return {"success": success, "count": len(self.play_next_list)}
+
+    async def remove_from_play_next(self, appid: int) -> dict:
+        original_len = len(self.play_next_list)
+        self.play_next_list = [e for e in self.play_next_list if e.appid != appid]
+        if len(self.play_next_list) < original_len:
+            self._save_play_next()
+            return {"success": True, "count": len(self.play_next_list)}
+        return {"success": False, "error": "Game not found in list"}
+
+    async def clear_play_next(self) -> dict:
+        self.play_next_list = []
+        success = self._save_play_next()
+        return {"success": success}
+
+    async def is_in_play_next(self, appid: int) -> dict:
+        return {"in_list": any(e.appid == appid for e in self.play_next_list)}
+
+    async def sync_play_next_to_collection(self) -> dict:
+        try:
+            appids = [e.appid for e in self.play_next_list]
+            if not appids:
+                return {"success": False, "error": "No games in Play Next list"}
+            decky.logger.info(f"[SuggestMe] Sync Play Next to collection: {len(appids)} games")
+            return {"success": True, "appids": appids, "collection_name": "Play Next"}
+        except Exception as e:
+            decky.logger.error(f"Failed to sync Play Next to collection: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def get_excluded_games(self) -> dict:
+        return {
+            "games": [e.to_dict() for e in self.excluded_games],
+            "count": len(self.excluded_games)
+        }
+
+    async def add_to_excluded(self, game_data: dict) -> dict:
+        appid = game_data.get("appid")
+        if not appid:
+            return {"success": False, "error": "Missing appid"}
+        
+        if any(e.appid == appid for e in self.excluded_games):
+            return {"success": False, "error": "Game already excluded"}
+        
+        entry = ExcludedGame(
+            appid=appid,
+            name=game_data.get("name", "Unknown"),
+            is_non_steam=game_data.get("is_non_steam", False),
+            matched_appid=game_data.get("matched_appid"),
+            playtime_forever=game_data.get("playtime_forever", 0),
+            deck_status=game_data.get("deck_status", ""),
+            excluded_at=int(time.time())
+        )
+        self.excluded_games.append(entry)
+        success = self._save_excluded_games()
+        return {"success": success, "count": len(self.excluded_games)}
+
+    async def remove_from_excluded(self, appid: int) -> dict:
+        original_len = len(self.excluded_games)
+        self.excluded_games = [e for e in self.excluded_games if e.appid != appid]
+        if len(self.excluded_games) < original_len:
+            self._save_excluded_games()
+            return {"success": True, "count": len(self.excluded_games)}
+        return {"success": False, "error": "Game not found in excluded list"}
+
+    async def clear_excluded_games(self) -> dict:
+        self.excluded_games = []
+        success = self._save_excluded_games()
+        return {"success": success}
+
+    async def sync_excluded_to_collection(self) -> dict:
+        try:
+            appids = [e.appid for e in self.excluded_games]
+            if not appids:
+                return {"success": False, "error": "No excluded games"}
+            decky.logger.info(f"[SuggestMe] Sync Excluded to collection: {len(appids)} games")
+            return {"success": True, "appids": appids, "collection_name": "SuggestMe Excluded"}
+        except Exception as e:
+            decky.logger.error(f"Failed to sync Excluded to collection: {e}")
+            return {"success": False, "error": str(e)}
 
     async def get_library_status(self) -> dict:
         steam_games = [g for g in self.library_cache if not g.is_non_steam]
@@ -706,7 +1033,12 @@ class Plugin:
             })
             return {"success": False, "error": error_msg}
 
-    def _filter_candidates(self, games: list[Game], filters: dict, installed_appids: set[int] = None, user_collections: dict = None) -> list[Game]:
+    def _get_excluded_appids(self) -> set[int]:
+        return set(e.appid for e in self.excluded_games)
+
+    def _filter_candidates(self, games: list[Game], filters: dict, installed_appids: set[int] = None, user_collections: dict = None) -> tuple[list[Game], int]:
+        excluded_appids = self._get_excluded_appids()
+        excluded_count = 0
         candidates = []
         include_genres = set(g.lower() for g in filters.get("include_genres", []))
         exclude_genres = set(g.lower() for g in filters.get("exclude_genres", []))
@@ -749,6 +1081,10 @@ class Plugin:
                     excluded_by_collections.update(appids)
 
         for game in games:
+            if game.appid in excluded_appids:
+                excluded_count += 1
+                continue
+
             if game.is_non_steam and game.match_status != "matched":
                 continue
 
@@ -812,7 +1148,7 @@ class Plugin:
 
             candidates.append(game)
 
-        return candidates
+        return candidates, excluded_count
 
     def _get_recent_games(self, n: int = 10) -> list[Game]:
         sorted_games = sorted(
@@ -932,7 +1268,7 @@ class Plugin:
         if include_cols or exclude_cols:
             user_collections = await self._get_user_collections()
             
-        candidates = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
+        candidates, excluded_count = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
 
         mode_history = self._get_mode_history_appids(mode)
         fresh_candidates = [g for g in candidates if g.appid not in mode_history]
@@ -944,6 +1280,7 @@ class Plugin:
             return {
                 "game": None,
                 "candidates_count": 0,
+                "excluded_count": excluded_count,
                 "mode_used": mode,
                 "error": "No games match your filters.",
             }
@@ -995,6 +1332,7 @@ class Plugin:
         return {
             "game": selected_game.to_dict() if selected_game else None,
             "candidates_count": len(candidates),
+            "excluded_count": excluded_count,
             "mode_used": mode,
             "error": None,
         }
