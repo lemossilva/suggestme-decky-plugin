@@ -1,5 +1,5 @@
 import { ButtonItem, PanelSectionRow, Focusable } from "@decky/ui";
-import { FaExternalLinkAlt, FaDice, FaGamepad, FaTimes } from "react-icons/fa";
+import { FaExternalLinkAlt, FaDice, FaGamepad, FaTimes, FaStar, FaStore } from "react-icons/fa";
 import { Game, SuggestMode, MODE_LABELS } from "../types";
 
 interface SuggestionCardProps {
@@ -112,6 +112,40 @@ export function SuggestionCard({
           <span>Last: {formatLastPlayed(game.rtime_last_played)}</span>
         </div>
 
+        {(game.steam_review_description || game.metacritic_score > 0) && (
+          <div
+            style={{
+              display: "flex",
+              gap: "12px",
+              alignItems: "center",
+              fontSize: "11px",
+              color: "var(--gpSystemLightGrey)",
+              marginBottom: "8px",
+            }}
+          >
+            {game.steam_review_description && (
+              <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <FaStar style={{ color: "#ffcc00" }} />
+                {game.steam_review_description}
+              </span>
+            )}
+            {game.metacritic_score > 0 && (
+              <span
+                style={{
+                  background: game.metacritic_score >= 75 ? "#66cc33" : game.metacritic_score >= 50 ? "#ffcc33" : "#ff6666",
+                  color: "#000",
+                  padding: "2px 6px",
+                  borderRadius: "3px",
+                  fontWeight: "bold",
+                  fontSize: "10px",
+                }}
+              >
+                {game.metacritic_score}
+              </span>
+            )}
+          </div>
+        )}
+
         <div
           style={{
             fontSize: "11px",
@@ -128,6 +162,21 @@ export function SuggestionCard({
             View Game
           </ButtonItem>
         </PanelSectionRow>
+
+        {((!game.is_non_steam) || (game.is_non_steam && game.matched_appid)) && (
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              onClick={() => {
+                const storeAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
+                window.open(`steam://store/${storeAppId}`, "_blank");
+              }}
+            >
+              <FaStore style={{ marginRight: "8px" }} />
+              Store Page
+            </ButtonItem>
+          </PanelSectionRow>
+        )}
 
         <PanelSectionRow>
           <ButtonItem layout="below" onClick={onReroll}>

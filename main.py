@@ -47,6 +47,10 @@ class Game:
     match_status: str = ""
     deck_status: str = ""
     protondb_tier: str = ""
+    steam_review_score: int = 0
+    steam_review_description: str = ""
+    metacritic_score: int = 0
+    metacritic_url: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -69,6 +73,10 @@ class Game:
             match_status=data.get("match_status", ""),
             deck_status=data.get("deck_status", ""),
             protondb_tier=data.get("protondb_tier", ""),
+            steam_review_score=data.get("steam_review_score", 0),
+            steam_review_description=data.get("steam_review_description", ""),
+            metacritic_score=data.get("metacritic_score", 0),
+            metacritic_url=data.get("metacritic_url", ""),
         )
 
 
@@ -167,6 +175,7 @@ class IntelligentTuning:
     not_recently_played_days: int = 30
     not_recently_played_bonus: float = 0.2
     top_candidate_percentile: int = 20
+    review_score_weight: float = 0.15
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -186,6 +195,7 @@ class IntelligentTuning:
             not_recently_played_days=data.get("not_recently_played_days", 30),
             not_recently_played_bonus=data.get("not_recently_played_bonus", 0.2),
             top_candidate_percentile=data.get("top_candidate_percentile", 20),
+            review_score_weight=data.get("review_score_weight", 0.15),
         )
 
 
@@ -197,6 +207,7 @@ class FreshAirTuning:
     unplayed_bonus: float = 0.5
     novel_genre_bonus: float = 0.2
     top_candidate_percentile: int = 20
+    review_score_weight: float = 0.15
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -210,6 +221,7 @@ class FreshAirTuning:
             unplayed_bonus=data.get("unplayed_bonus", 0.5),
             novel_genre_bonus=data.get("novel_genre_bonus", 0.2),
             top_candidate_percentile=data.get("top_candidate_percentile", 20),
+            review_score_weight=data.get("review_score_weight", 0.15),
         )
 
 
@@ -238,6 +250,9 @@ DEFAULT_SETTINGS = {
         "protondb_tier": [],
         "include_collections": [],
         "exclude_collections": [],
+        "min_steam_review_score": None,
+        "min_metacritic_score": None,
+        "include_games_without_reviews": True,
     },
     "filter_presets": [None, None, None, None, None],
     "active_preset_index": None,
@@ -758,6 +773,22 @@ class Plugin:
                     return app_data.get("data", {})
                 return {}
 
+    async def _fetch_steam_review_summary(self, appid: int) -> dict:
+        url = f"https://store.steampowered.com/appreviews/{appid}"
+        params = {"json": "1", "language": "all", "num_per_page": "0"}
+        ssl_ctx = _create_ssl_context()
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        try:
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}) as response:
+                    if response.status != 200:
+                        return {}
+                    data = await response.json()
+                    return data.get("query_summary", {})
+        except Exception as e:
+            decky.logger.debug(f"Failed to fetch review summary for {appid}: {e}")
+            return {}
+
     def _normalize_game_name(self, name: str) -> str:
         import re
         normalized = re.sub(r'[^\w\s]', '', name).strip().lower()
@@ -1032,8 +1063,9 @@ class Plugin:
         async def fetch_single(game: Game):
             try:
                 fetch_appid = game.matched_appid if game.is_non_steam and game.matched_appid else game.appid
-                details, deck_status, protondb, steam_tags = await asyncio.gather(
+                details, review_summary, deck_status, protondb, steam_tags = await asyncio.gather(
                     self._fetch_game_details(fetch_appid),
+                    self._fetch_steam_review_summary(fetch_appid),
                     self._fetch_deck_status(fetch_appid),
                     self._fetch_protondb_tier(fetch_appid),
                     self._fetch_steam_tags(fetch_appid),
@@ -1044,6 +1076,13 @@ class Plugin:
                     game.genres = [self._clean_text(g.get("description", "")) for g in genres]
                     categories = details.get("categories", [])
                     game.tags = [self._clean_text(c.get("description", "")) for c in categories]
+                    metacritic = details.get("metacritic", {})
+                    if metacritic:
+                        game.metacritic_score = metacritic.get("score", 0) or 0
+                        game.metacritic_url = metacritic.get("url", "") or ""
+                if isinstance(review_summary, dict) and review_summary:
+                    game.steam_review_score = review_summary.get("review_score", 0) or 0
+                    game.steam_review_description = review_summary.get("review_score_desc", "") or ""
                 if isinstance(steam_tags, list):
                     game.community_tags = steam_tags
                 if isinstance(deck_status, str):
@@ -1171,6 +1210,9 @@ class Plugin:
         exclude_non_steam = filters.get("exclude_non_steam", False)
         deck_status_filter = set(s.lower() for s in filters.get("deck_status", []))
         protondb_filter = set(s.lower() for s in filters.get("protondb_tier", []))
+        min_steam_review_score = filters.get("min_steam_review_score")
+        min_metacritic_score = filters.get("min_metacritic_score")
+        include_games_without_reviews = filters.get("include_games_without_reviews", True)
         
         if installed_appids is None:
             installed_appids = set()
@@ -1249,6 +1291,22 @@ class Plugin:
 
             if protondb_filter:
                 if not game.protondb_tier or game.protondb_tier.lower() not in protondb_filter:
+                    continue
+
+            if min_steam_review_score is not None:
+                has_review = game.steam_review_score > 0
+                if has_review:
+                    if game.steam_review_score < min_steam_review_score:
+                        continue
+                elif not include_games_without_reviews:
+                    continue
+
+            if min_metacritic_score is not None:
+                has_metacritic = game.metacritic_score > 0
+                if has_metacritic:
+                    if game.metacritic_score < min_metacritic_score:
+                        continue
+                elif not include_games_without_reviews:
                     continue
 
             # Collection filtering
@@ -1343,6 +1401,13 @@ class Plugin:
             if days_since > tuning.not_recently_played_days:
                 score += tuning.not_recently_played_bonus
 
+        if game.steam_review_score > 0:
+            normalized_steam = game.steam_review_score / 9.0
+            score += normalized_steam * tuning.review_score_weight
+        if game.metacritic_score > 0:
+            normalized_meta = game.metacritic_score / 100.0
+            score += normalized_meta * tuning.review_score_weight
+
         return score
 
     def _score_fresh_air(self, game: Game, profile: dict) -> float:
@@ -1368,6 +1433,13 @@ class Plugin:
         game_genres = set(g.lower() for g in game.genres)
         novel_genres = game_genres - all_genres
         score += len(novel_genres) * tuning.novel_genre_bonus
+
+        if game.steam_review_score > 0:
+            normalized_steam = game.steam_review_score / 9.0
+            score += normalized_steam * tuning.review_score_weight
+        if game.metacritic_score > 0:
+            normalized_meta = game.metacritic_score / 100.0
+            score += normalized_meta * tuning.review_score_weight
 
         return max(0, score)
 
@@ -1744,8 +1816,9 @@ class Plugin:
                     game.matched_appid = matched_appid
                     game.match_status = "matched"
                     
-                    details, deck_status, protondb = await asyncio.gather(
+                    details, review_summary, deck_status, protondb = await asyncio.gather(
                         self._fetch_game_details(matched_appid),
+                        self._fetch_steam_review_summary(matched_appid),
                         self._fetch_deck_status(matched_appid),
                         self._fetch_protondb_tier(matched_appid),
                         return_exceptions=True
@@ -1755,6 +1828,13 @@ class Plugin:
                         game.genres = [self._clean_text(g.get("description", "")) for g in genres]
                         categories = details.get("categories", [])
                         game.tags = [self._clean_text(c.get("description", "")) for c in categories]
+                        metacritic = details.get("metacritic", {})
+                        if metacritic:
+                            game.metacritic_score = metacritic.get("score", 0) or 0
+                            game.metacritic_url = metacritic.get("url", "") or ""
+                    if isinstance(review_summary, dict) and review_summary:
+                        game.steam_review_score = review_summary.get("review_score", 0) or 0
+                        game.steam_review_description = review_summary.get("review_score_desc", "") or ""
                     if isinstance(deck_status, str):
                         game.deck_status = deck_status
                     if isinstance(protondb, str):

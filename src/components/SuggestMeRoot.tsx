@@ -69,6 +69,11 @@ const TAB_DEFINITIONS: Record<SuggestMode, { label: string; icon: JSX.Element }>
   fresh_air: { label: 'Fresh', icon: <FaLeaf size={12} /> },
 };
 
+const normalizeFilters = (filters?: SuggestFilters): SuggestFilters => ({
+  ...DEFAULT_FILTERS,
+  ...(filters || {}),
+});
+
 interface TabButtonProps {
   label: string;
   icon: JSX.Element;
@@ -134,7 +139,7 @@ export function SuggestMeRoot() {
   const [selectedTab, setSelectedTab] = useState<TabId | null>(null);
   const activeTab = selectedTab || modeOrder[0];
 
-  const [filters, setFilters] = useState<SuggestFilters>(config.default_filters || DEFAULT_FILTERS);
+  const [filters, setFilters] = useState<SuggestFilters>(normalizeFilters(config.default_filters));
   const [history, setHistory] = useState<Record<SuggestMode, HistoryEntry[]>>({
     luck: [],
     guided: [],
@@ -164,6 +169,14 @@ export function SuggestMeRoot() {
       fetchCandidatesCount();
     }
   }, [hasCredentials, activeTab, filters]);
+
+  useEffect(() => {
+    if (!config.default_filters) return;
+    setFilters((prev) => {
+      const normalized = normalizeFilters(config.default_filters);
+      return JSON.stringify(prev) === JSON.stringify(normalized) ? prev : normalized;
+    });
+  }, [config.default_filters]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -265,16 +278,18 @@ export function SuggestMeRoot() {
       availableCommunityTags,
       availableCollections,
       onSave: async (newFilters) => {
-        setFilters(newFilters);
-        await setDefaultFilters(newFilters);
+        const normalized = normalizeFilters(newFilters);
+        setFilters(normalized);
+        await setDefaultFilters(normalized);
         Navigation.OpenQuickAccessMenu();
       }
     });
   };
 
   const handleClearFilters = () => {
-    setFilters(DEFAULT_FILTERS);
-    setDefaultFilters(DEFAULT_FILTERS);
+    const resetFilters = { ...DEFAULT_FILTERS };
+    setFilters(resetFilters);
+    setDefaultFilters(resetFilters);
   };
 
   const handleSuggest = async () => {
@@ -493,6 +508,9 @@ export function SuggestMeRoot() {
             )}
           </Focusable>
 
+          {/* Vertical Spacer */}
+          <div style={{ width: 1, backgroundColor: '#ffffff22', margin: '4px 0' }} />
+
           {/* Settings Button (icon only) */}
           <Focusable
             onActivate={navigateToSettings}
@@ -593,7 +611,6 @@ export function SuggestMeRoot() {
                     width: '100%',
                     padding: 4,
                     marginTop: 8,
-                    paddingBottom: 0,
                     backgroundColor: '#ffffff11',
                     borderRadius: 12
                   }}
@@ -912,6 +929,7 @@ export function SuggestMeRoot() {
                       cursor: 'pointer',
                       border: '2px solid transparent',
                       fontSize: 11,
+                      width: '100%',
                       color: '#fff'
                     }}
                     onFocus={(e: any) => e.target.style.borderColor = 'white'}

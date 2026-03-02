@@ -14,6 +14,10 @@ export interface Game {
   match_status: string;
   deck_status: string;
   protondb_tier: string;
+  steam_review_score: number;
+  steam_review_description: string;
+  metacritic_score: number;
+  metacritic_url: string;
 }
 
 export interface NonSteamGamesInfo {
@@ -45,6 +49,9 @@ export interface SuggestFilters {
   exclude_collections: string[];
   include_collection_appids?: number[];
   exclude_collection_appids?: number[];
+  min_steam_review_score?: number;
+  min_metacritic_score?: number;
+  include_games_without_reviews: boolean;
 }
 
 export interface SuggestMeConfig {
@@ -106,6 +113,9 @@ export const DEFAULT_FILTERS: SuggestFilters = {
   protondb_tier: [],
   include_collections: [],
   exclude_collections: [],
+  min_steam_review_score: undefined,
+  min_metacritic_score: undefined,
+  include_games_without_reviews: true,
 };
 
 export interface FilterPreset {
@@ -165,6 +175,7 @@ export interface IntelligentTuning {
   not_recently_played_days: number;
   not_recently_played_bonus: number;
   top_candidate_percentile: number;
+  review_score_weight: number;
 }
 
 export interface FreshAirTuning {
@@ -174,6 +185,7 @@ export interface FreshAirTuning {
   unplayed_bonus: number;
   novel_genre_bonus: number;
   top_candidate_percentile: number;
+  review_score_weight: number;
 }
 
 export interface ModeTuning {
@@ -194,6 +206,7 @@ export const DEFAULT_INTELLIGENT_TUNING: IntelligentTuning = {
   not_recently_played_days: 30,
   not_recently_played_bonus: 0.2,
   top_candidate_percentile: 20,
+  review_score_weight: 0.15,
 };
 
 export const DEFAULT_FRESH_AIR_TUNING: FreshAirTuning = {
@@ -203,4 +216,5 @@ export const DEFAULT_FRESH_AIR_TUNING: FreshAirTuning = {
   unplayed_bonus: 0.5,
   novel_genre_bonus: 0.2,
   top_candidate_percentile: 20,
+  review_score_weight: 0.15,
 };

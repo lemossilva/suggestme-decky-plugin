@@ -1174,6 +1174,19 @@ const ModeTuningPage = () => {
                 </PanelSectionRow>
 
                 <PanelSectionRow>
+                    <SliderField
+                        label="Review Score Weight"
+                        description="How much Steam/Metacritic scores influence the result"
+                        value={intelligentTuning.review_score_weight}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        onChange={(v) => updateIntelligent("review_score_weight", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
                     <ButtonItem layout="below" onClick={handleResetIntelligent}>
                         <FaUndo style={{ marginRight: 8 }} />
                         Reset Intelligent to Defaults
@@ -1262,6 +1275,19 @@ const ModeTuningPage = () => {
                         max={50}
                         step={5}
                         onChange={(v) => updateFreshAir("top_candidate_percentile", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Review Score Weight"
+                        description="How much Steam/Metacritic scores influence the result"
+                        value={freshAirTuning.review_score_weight}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        onChange={(v) => updateFreshAir("review_score_weight", v)}
                         showValue
                     />
                 </PanelSectionRow>

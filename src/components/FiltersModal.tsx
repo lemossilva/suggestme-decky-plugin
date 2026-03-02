@@ -12,9 +12,14 @@ import {
 } from "@decky/ui";
 import { routerHook } from "@decky/api";
 import { useState } from "react";
-import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash } from "react-icons/fa";
+import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash, FaStar } from "react-icons/fa";
 import { SuggestFilters, DEFAULT_FILTERS } from "../types";
 import { useFilterPresets } from "../hooks/useFilterPresets";
+
+const normalizeFilters = (filters: SuggestFilters): SuggestFilters => ({
+    ...DEFAULT_FILTERS,
+    ...filters,
+});
 
 interface PresetLabelModalProps {
     currentLabel: string;
@@ -743,6 +748,63 @@ const DeckCompatPage = ({ filters, setFilters }: { filters: SuggestFilters; setF
     );
 };
 
+const STEAM_REVIEW_SCORE_LABELS: Record<number, string> = {
+    1: "Overwhelmingly Negative",
+    2: "Very Negative",
+    3: "Negative",
+    4: "Mostly Negative",
+    5: "Mixed",
+    6: "Mostly Positive",
+    7: "Positive",
+    8: "Very Positive",
+    9: "Overwhelmingly Positive"
+};
+
+const ReviewsPage = ({ filters, setFilters }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void }) => {
+    return (
+        <div style={{ padding: '0px 24px', overflowY: 'auto' }}>
+            <PanelSection title="Steam Reviews">
+                <PanelSectionRow>
+                    <SliderField
+                        label="Minimum Steam Review"
+                        description={(filters.min_steam_review_score ?? 0) === 0 ? 'No minimum' : `At least: ${STEAM_REVIEW_SCORE_LABELS[filters.min_steam_review_score as number]}`}
+                        value={filters.min_steam_review_score ?? 0}
+                        min={0}
+                        max={9}
+                        step={1}
+                        onChange={(v) => setFilters({ ...filters, min_steam_review_score: v === 0 ? undefined : v })}
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+
+            <PanelSection title="Metacritic">
+                <PanelSectionRow>
+                    <SliderField
+                        label="Minimum Metacritic Score"
+                        description={(filters.min_metacritic_score ?? 0) === 0 ? 'No minimum' : `At least ${filters.min_metacritic_score}`}
+                        value={filters.min_metacritic_score ?? 0}
+                        min={0}
+                        max={100}
+                        step={5}
+                        onChange={(v) => setFilters({ ...filters, min_metacritic_score: v === 0 ? undefined : v })}
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+
+            <PanelSection title="Missing Data">
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Include games without reviews"
+                        description="Keep games with missing review data when score filters are active"
+                        checked={filters.include_games_without_reviews ?? true}
+                        onChange={(v) => setFilters({ ...filters, include_games_without_reviews: v })}
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+        </div>
+    );
+};
+
 const PresetsPage = ({ 
     filters, 
     setFilters,
@@ -950,7 +1012,7 @@ export const FiltersPage = () => {
         );
     }
 
-    const [localFilters, setLocalFilters] = useState<SuggestFilters>(props.filters);
+    const [localFilters, setLocalFilters] = useState<SuggestFilters>(normalizeFilters(props.filters));
     const [resetFeedback, setResetFeedback] = useState(false);
     const [filtersModified, setFiltersModified] = useState(false);
 
@@ -963,12 +1025,12 @@ export const FiltersPage = () => {
     };
 
     const handleSave = async () => {
-        await props.onSave(localFilters);
+        await props.onSave(normalizeFilters(localFilters));
         Navigation.NavigateBack();
     };
 
     const handleReset = () => {
-        setLocalFilters(DEFAULT_FILTERS);
+        setLocalFilters({ ...DEFAULT_FILTERS });
         setFiltersModified(true);
         setActive(null);
         setResetFeedback(true);
@@ -978,42 +1040,47 @@ export const FiltersPage = () => {
     const pages = [
         {
             title: "Presets",
-            icon: <FaSave size={16} />,
+            icon: <FaSave size={14} />,
             content: <PresetsPage filters={localFilters} setFilters={setLocalFilters} onPresetChange={() => setFiltersModified(false)} />
         },
         {
             title: "Source",
-            icon: <FaExchangeAlt size={16} />,
+            icon: <FaExchangeAlt size={14} />,
             content: <GameSourcePage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
             title: "Playtime",
-            icon: <FaClock size={16} />,
+            icon: <FaClock size={14} />,
             content: <PlaytimePage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
             title: "Genres",
-            icon: <FaGamepad size={16} />,
+            icon: <FaGamepad size={14} />,
             content: <GenresPage filters={localFilters} setFilters={handleFilterChange} genres={props.availableGenres} />
         },
         {
             title: "Features",
-            icon: <FaTags size={16} />,
+            icon: <FaTags size={14} />,
             content: <TagsPage filters={localFilters} setFilters={handleFilterChange} tags={props.availableTags} />
         },
         {
             title: "Community",
-            icon: <FaUsers size={16} />,
+            icon: <FaUsers size={14} />,
             content: <CommunityTagsPage filters={localFilters} setFilters={handleFilterChange} communityTags={props.availableCommunityTags} />
         },
         {
             title: "Deck",
-            icon: <FaSteam size={16} />,
+            icon: <FaSteam size={14} />,
             content: <DeckCompatPage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
+            title: "Reviews",
+            icon: <FaStar size={14} />,
+            content: <ReviewsPage filters={localFilters} setFilters={handleFilterChange} />
+        },
+        {
             title: "Collections",
-            icon: <FaFolder size={16} />,
+            icon: <FaFolder size={14} />,
             content: <CollectionsPage filters={localFilters} setFilters={handleFilterChange} collections={props.availableCollections} />
         }
     ];
@@ -1028,7 +1095,7 @@ export const FiltersPage = () => {
                 style={{
                     display: 'flex',
                     gap: 8,
-                    padding: '12px 24px 60px 24px',
+                    padding: '8px 24px 40px 24px',
                     borderTop: '1px solid #ffffff11'
                 }}
             >
@@ -1125,6 +1192,9 @@ export function getFilterSummary(filters: SuggestFilters): string {
     if (filters.protondb_tier?.length) parts.push(`${filters.protondb_tier.length} ProtonDB`);
     if (filters.include_collections?.length) parts.push(`${filters.include_collections.length} collections`);
     if (filters.exclude_collections?.length) parts.push(`-${filters.exclude_collections.length} collections`);
+    if (filters.min_steam_review_score) parts.push(`Steam ≥${filters.min_steam_review_score}`);
+    if (filters.min_metacritic_score) parts.push(`Meta ≥${filters.min_metacritic_score}`);
+    if (!filters.include_games_without_reviews) parts.push('Reviews required');
     
     return parts.length > 0 ? parts.join(' • ') : 'No filters';
 }
@@ -1148,6 +1218,9 @@ export function hasActiveFilters(filters: SuggestFilters): boolean {
         (filters.deck_status?.length || 0) > 0 ||
         (filters.protondb_tier?.length || 0) > 0 ||
         (filters.include_collections?.length || 0) > 0 ||
-        (filters.exclude_collections?.length || 0) > 0
+        (filters.exclude_collections?.length || 0) > 0 ||
+        filters.min_steam_review_score !== undefined ||
+        filters.min_metacritic_score !== undefined ||
+        !filters.include_games_without_reviews
     );
 }
