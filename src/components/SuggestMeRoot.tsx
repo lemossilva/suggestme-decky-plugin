@@ -3,7 +3,6 @@ import {
   PanelSection,
   PanelSectionRow,
   ButtonItem,
-  Spinner,
   Focusable,
   Navigation,
 } from "@decky/ui";
@@ -16,7 +15,25 @@ declare const SteamClient: {
 
 declare const appStore: {
   GetAppOverviewByAppID: (appid: number) => { m_gameid?: string; gameid?: string } | null;
+  allApps: { appid: number; local_per_client_data?: { installed?: boolean } }[];
 };
+
+function getInstalledAppIds(): number[] {
+  try {
+    if (typeof appStore !== 'undefined' && appStore.allApps) {
+      const installed: number[] = [];
+      for (const app of appStore.allApps) {
+        if (app.local_per_client_data?.installed) {
+          installed.push(app.appid);
+        }
+      }
+      return installed;
+    }
+  } catch (e) {
+    console.error("[SuggestMe] Failed to get installed apps:", e);
+  }
+  return [];
+}
 
 import { FaMagic, FaCog, FaDice, FaCompass, FaBrain, FaLeaf, FaFilter, FaTimes, FaTrash, FaChevronRight, FaGamepad, FaSteam, FaListUl, FaBan } from "react-icons/fa";
 import { call } from "@decky/api";
@@ -31,6 +48,7 @@ import { navigateToSettings } from "./SettingsModal";
 import { navigateToFilters, getFilterSummary, hasActiveFilters } from "./FiltersModal";
 import { navigateToNonSteamGames } from "./NonSteamGamesModal";
 import { navigateToPlayNext } from "./PlayNextModal";
+import { navigateToHistory } from "./HistoryModal";
 import { navigateToExcludedGames } from "./ExcludedGamesModal";
 import {
   SuggestMode,
@@ -44,26 +62,21 @@ import {
 
 type TabId = SuggestMode;
 
-interface Tab {
-  id: TabId;
-  label: string;
-  icon: JSX.Element;
-}
-
-const TABS: Tab[] = [
-  { id: 'luck', label: 'Luck', icon: <FaDice size={12} /> },
-  { id: 'guided', label: 'Guided', icon: <FaCompass size={12} /> },
-  { id: 'intelligent', label: 'Smart', icon: <FaBrain size={12} /> },
-  { id: 'fresh_air', label: 'Fresh', icon: <FaLeaf size={12} /> },
-];
+const TAB_DEFINITIONS: Record<SuggestMode, { label: string; icon: JSX.Element }> = {
+  luck: { label: 'Luck', icon: <FaDice size={12} /> },
+  guided: { label: 'Guided', icon: <FaCompass size={12} /> },
+  intelligent: { label: 'Smart', icon: <FaBrain size={12} /> },
+  fresh_air: { label: 'Fresh', icon: <FaLeaf size={12} /> },
+};
 
 interface TabButtonProps {
-  tab: Tab;
+  label: string;
+  icon: JSX.Element;
   active: boolean;
   onClick: () => void;
 }
 
-const TabButton = ({ tab, active, onClick }: TabButtonProps) => {
+const TabButton = ({ label, icon, active, onClick }: TabButtonProps) => {
   const [focused, setFocused] = useState(false);
 
   return (
@@ -89,7 +102,7 @@ const TabButton = ({ tab, active, onClick }: TabButtonProps) => {
         transition: 'all 0.1s ease-in-out',
       }}
     >
-      {tab.icon}
+      {icon}
       <span style={{
         fontSize: 10,
         whiteSpace: 'nowrap',
@@ -97,23 +110,30 @@ const TabButton = ({ tab, active, onClick }: TabButtonProps) => {
         textOverflow: 'ellipsis',
         maxWidth: '100%',
         marginTop: 2
-      }}>{tab.label}</span>
+      }}>{label}</span>
     </Focusable>
   );
 };
 
 export function SuggestMeRoot() {
-  const { config, hasCredentials, isLoading: configLoading, setDefaultFilters } = useSuggestMeConfig();
+  const { config, hasCredentials, setDefaultFilters } = useSuggestMeConfig();
   const { status, availableGenres, availableTags, availableCommunityTags } = useLibraryStatus();
-  const { isLoading: suggestionLoading, requestSuggestion, clearCurrentSuggestion } =
+  const { requestSuggestion, clearCurrentSuggestion } =
     useSuggestion();
   const { count: playNextCount, addGame: addToPlayNext, removeGame: removeFromPlayNext, isInList: isInPlayNext } = usePlayNext();
-  const { excludeGame } = useExcludedGames();
-  const { getActivePreset } = useFilterPresets();
+  const { excludeGame, count: excludedCount } = useExcludedGames();
+  const { presets, activeIndex, getActivePreset, setActive } = useFilterPresets();
 
   const contentRef = useRef<HTMLDivElement>(null);
   const activePreset = getActivePreset();
-  const [activeTab, setActiveTab] = useState<TabId>(config.default_mode || "luck");
+  // Derive tabs from config order, fallback to default if missing
+  const modeOrder = config.mode_order && config.mode_order.length > 0 
+    ? config.mode_order 
+    : (['luck', 'guided', 'intelligent', 'fresh_air'] as SuggestMode[]);
+
+  const [selectedTab, setSelectedTab] = useState<TabId | null>(null);
+  const activeTab = selectedTab || modeOrder[0];
+
   const [filters, setFilters] = useState<SuggestFilters>(config.default_filters || DEFAULT_FILTERS);
   const [history, setHistory] = useState<Record<SuggestMode, HistoryEntry[]>>({
     luck: [],
@@ -124,6 +144,8 @@ export function SuggestMeRoot() {
   const [nonSteamInfo, setNonSteamInfo] = useState<NonSteamGamesInfo | null>(null);
   const [availableCollections, setAvailableCollections] = useState<string[]>([]);
   const [justAddedToPlayNext, setJustAddedToPlayNext] = useState(false);
+  const [confirmingExclude, setConfirmingExclude] = useState(false);
+  const [candidatesCount, setCandidatesCount] = useState<{ candidates: number; excluded: number } | null>(null);
   const [suggestionsPerMode, setSuggestionsPerMode] = useState<Record<SuggestMode, SuggestionResult | null>>({
     luck: null,
     guided: null,
@@ -137,10 +159,11 @@ export function SuggestMeRoot() {
   const steamGamesCount = status.steam_games_count || 0;
 
   useEffect(() => {
-    if (!configLoading && config.default_filters) {
-      setFilters(config.default_filters);
+    if (hasCredentials) {
+      loadHistory();
+      fetchCandidatesCount();
     }
-  }, [configLoading, config.default_filters]);
+  }, [hasCredentials, activeTab, filters]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -196,6 +219,24 @@ export function SuggestMeRoot() {
     loadNonSteamInfo();
     loadCollections();
   }, [loadHistory, loadNonSteamInfo, loadCollections]);
+
+  const fetchCandidatesCount = useCallback(async () => {
+    if (!hasCredentials || status.total_games === 0) {
+      setCandidatesCount(null);
+      return;
+    }
+    try {
+      const installedAppIds = getInstalledAppIds();
+      const result = await call<[object, number[]], { count: number; excluded_count: number }>("get_candidates_count", filters, installedAppIds);
+      if (result) setCandidatesCount({ candidates: result.count, excluded: result.excluded_count });
+    } catch (e) {
+      console.error("[SuggestMe] Failed to get candidates count:", e);
+    }
+  }, [filters, hasCredentials, status.total_games]);
+
+  useEffect(() => {
+    fetchCandidatesCount();
+  }, [fetchCandidatesCount]);
 
   useEffect(() => {
     const scrollToTop = () => {
@@ -274,15 +315,6 @@ export function SuggestMeRoot() {
     }
   };
 
-  const handleClearModeHistory = async () => {
-    try {
-      await call<[string], { success: boolean }>("clear_mode_history", activeTab);
-      loadHistory();
-    } catch (e) {
-      console.error("[SuggestMe] Failed to clear mode history:", e);
-    }
-  };
-
   const handleAddToPlayNext = async () => {
     if (currentModeSuggestion?.game) {
       await addToPlayNext(currentModeSuggestion.game);
@@ -298,8 +330,15 @@ export function SuggestMeRoot() {
   };
 
   const handleExclude = async () => {
+    if (!confirmingExclude) {
+      setConfirmingExclude(true);
+      setTimeout(() => setConfirmingExclude(false), 5000);
+      return;
+    }
+    
     if (currentModeSuggestion?.game) {
       await excludeGame(currentModeSuggestion.game);
+      setConfirmingExclude(false);
       handleReroll();
     }
   };
@@ -307,16 +346,6 @@ export function SuggestMeRoot() {
   const currentGameInPlayNext = currentModeSuggestion?.game ? isInPlayNext(currentModeSuggestion.game.appid) : false;
 
   const currentHistory = history[activeTab] || [];
-
-  if (configLoading) {
-    return (
-      <PanelSection>
-        <div style={{ display: "flex", justifyContent: "center", padding: "20px" }}>
-          <Spinner />
-        </div>
-      </PanelSection>
-    );
-  }
 
   return (
     <div ref={contentRef}>
@@ -333,7 +362,7 @@ export function SuggestMeRoot() {
         >
           {/* Steam Games Count */}
           <Focusable
-            onActivate={navigateToSettings}
+            onActivate={steamGamesCount > 0 ? () => Navigation.Navigate("/library") : undefined}
             style={{
               flex: 1,
               display: 'flex',
@@ -344,13 +373,15 @@ export function SuggestMeRoot() {
               backgroundColor: steamGamesCount > 0 ? '#4488aa22' : '#ffffff08',
               borderRadius: 10,
               border: '2px solid transparent',
-              cursor: 'pointer',
+              cursor: steamGamesCount > 0 ? 'pointer' : 'default',
               opacity: steamGamesCount > 0 ? 1 : 0.6,
               transition: 'all 0.1s ease-in-out'
             }}
             onFocus={(e: any) => {
-              e.target.style.backgroundColor = '#1a5a7a';
-              e.target.style.borderColor = 'white';
+              if (steamGamesCount > 0) {
+                e.target.style.backgroundColor = '#1a5a7a';
+                e.target.style.borderColor = 'white';
+              }
             }}
             onBlur={(e: any) => {
               e.target.style.backgroundColor = steamGamesCount > 0 ? '#4488aa22' : '#ffffff08';
@@ -365,7 +396,7 @@ export function SuggestMeRoot() {
 
           {/* Non-Steam Games Count */}
           <Focusable
-            onActivate={navigateToNonSteamGames}
+            onActivate={(nonSteamInfo?.total || 0) > 0 ? navigateToNonSteamGames : undefined}
             style={{
               flex: 1,
               display: 'flex',
@@ -376,13 +407,15 @@ export function SuggestMeRoot() {
               backgroundColor: (nonSteamInfo?.total || 0) > 0 ? '#aa886622' : '#ffffff08',
               borderRadius: 10,
               border: '2px solid transparent',
-              cursor: 'pointer',
+              cursor: (nonSteamInfo?.total || 0) > 0 ? 'pointer' : 'default',
               opacity: (nonSteamInfo?.total || 0) > 0 ? 1 : 0.6,
               transition: 'all 0.1s ease-in-out'
             }}
             onFocus={(e: any) => {
-              e.target.style.backgroundColor = '#1a5a7a';
-              e.target.style.borderColor = 'white';
+              if ((nonSteamInfo?.total || 0) > 0) {
+                e.target.style.backgroundColor = '#1a5a7a';
+                e.target.style.borderColor = 'white';
+              }
             }}
             onBlur={(e: any) => {
               e.target.style.backgroundColor = (nonSteamInfo?.total || 0) > 0 ? '#aa886622' : '#ffffff08';
@@ -400,7 +433,7 @@ export function SuggestMeRoot() {
 
           {/* Play Next Indicator */}
           <Focusable
-            onActivate={navigateToPlayNext}
+            onActivate={playNextCount > 0 ? navigateToPlayNext : undefined}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -410,12 +443,14 @@ export function SuggestMeRoot() {
               backgroundColor: playNextCount > 0 ? '#88aa8822' : '#ffffff08',
               borderRadius: 10,
               border: '2px solid transparent',
-              cursor: 'pointer',
+              cursor: playNextCount > 0 ? 'pointer' : 'default',
               transition: 'all 0.1s ease-in-out'
             }}
             onFocus={(e: any) => {
-              e.target.style.backgroundColor = '#1a5a7a';
-              e.target.style.borderColor = 'white';
+              if (playNextCount > 0) {
+                e.target.style.backgroundColor = '#1a5a7a';
+                e.target.style.borderColor = 'white';
+              }
             }}
             onBlur={(e: any) => {
               e.target.style.backgroundColor = playNextCount > 0 ? '#88aa8822' : '#ffffff08';
@@ -435,8 +470,9 @@ export function SuggestMeRoot() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              gap: 4,
               padding: 6,
-              backgroundColor: '#ffffff08',
+              backgroundColor: (excludedCount || 0) > 0 ? '#ff666622' : '#ffffff08',
               borderRadius: 10,
               border: '2px solid transparent',
               cursor: 'pointer',
@@ -447,11 +483,14 @@ export function SuggestMeRoot() {
               e.target.style.borderColor = 'white';
             }}
             onBlur={(e: any) => {
-              e.target.style.backgroundColor = '#ffffff08';
+              e.target.style.backgroundColor = (excludedCount || 0) > 0 ? '#ff666622' : '#ffffff08';
               e.target.style.borderColor = 'transparent';
             }}
           >
             <FaBan size={12} style={{ color: '#ff6666' }} />
+            {(excludedCount || 0) > 0 && (
+              <span style={{ fontSize: 10, color: '#ff6666', fontWeight: 600 }}>{excludedCount}</span>
+            )}
           </Focusable>
 
           {/* Settings Button (icon only) */}
@@ -559,12 +598,13 @@ export function SuggestMeRoot() {
                     borderRadius: 12
                   }}
                 >
-                  {TABS.map(tab => (
+                  {modeOrder.map(mode => (
                     <TabButton
-                      key={tab.id}
-                      tab={tab}
-                      active={activeTab === tab.id}
-                      onClick={() => setActiveTab(tab.id)}
+                      key={mode}
+                      label={TAB_DEFINITIONS[mode].label}
+                      icon={TAB_DEFINITIONS[mode].icon}
+                      active={activeTab === mode}
+                      onClick={() => setSelectedTab(mode)}
                     />
                   ))}
                 </Focusable>
@@ -574,6 +614,13 @@ export function SuggestMeRoot() {
                   {MODE_DESCRIPTIONS[activeTab]}
                 </div>
               </PanelSectionRow>
+              {(activeTab === 'intelligent' || activeTab === 'fresh_air') && (
+                <PanelSectionRow>
+                  <div style={{ fontSize: 10, color: '#666', textAlign: 'center', fontStyle: 'italic' }}>
+                    Tune this algorithm in Settings &gt; Mode Tuning
+                  </div>
+                </PanelSectionRow>
+              )}
             </PanelSection>
           </div>
 
@@ -582,6 +629,44 @@ export function SuggestMeRoot() {
             borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
             margin: '0 16px'
           }} />
+
+          {/* Quick Preset Buttons */}
+          {presets.some(p => p !== null) && (
+            <div style={{ padding: '0 16px', marginTop: 8 }}>
+              <Focusable
+                flow-children="row"
+                style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
+              >
+                {presets.map((preset, index) => preset && (
+                  <Focusable
+                    key={index}
+                    onActivate={async () => {
+                      setFilters(preset.filters);
+                      await setActive(index);
+                      await setDefaultFilters(preset.filters);
+                    }}
+                    style={{
+                      padding: '4px 10px',
+                      backgroundColor: activeIndex === index ? '#4488aa' : '#ffffff11',
+                      borderRadius: 12,
+                      cursor: 'pointer',
+                      border: '2px solid transparent',
+                      fontSize: 11,
+                      color: activeIndex === index ? '#fff' : '#aaa',
+                      maxWidth: 80,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                  >
+                    {preset.label}
+                  </Focusable>
+                ))}
+              </Focusable>
+            </div>
+          )}
 
           {/* Filters Bar */}
           <div style={{ padding: '0 16px', marginTop: 8, marginBottom: 8 }}>  
@@ -616,7 +701,14 @@ export function SuggestMeRoot() {
               >
                 <FaFilter size={12} style={{ color: filtersActive ? '#4488aa' : '#888' }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: filtersActive ? 600 : 400 }}>Filters</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: filtersActive ? 600 : 400 }}>Filters</span>
+                    {candidatesCount !== null && (
+                      <span style={{ fontSize: 10, color: '#888', fontWeight: 400 }}>
+                        ({candidatesCount.candidates}{candidatesCount.excluded > 0 ? ` - ${candidatesCount.excluded} excluded` : ''})
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 10, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {filterSummary}
                   </div>
@@ -655,19 +747,10 @@ export function SuggestMeRoot() {
                 <ButtonItem
                   layout="below"
                   onClick={handleSuggest}
-                  disabled={suggestionLoading || status.is_refreshing}
+                  disabled={status.is_refreshing}
                 >
-                  {suggestionLoading ? (
-                    <>
-                      <Spinner style={{ marginRight: 8, width: 16, height: 16 }} />
-                      Finding a game...
-                    </>
-                  ) : (
-                    <>
-                      <FaMagic style={{ marginRight: 8 }} />
-                      Suggest a Game
-                    </>
-                  )}
+                  <FaMagic style={{ marginRight: 8 }} />
+                  Suggest a Game
                 </ButtonItem>
               </PanelSectionRow>
             </div>
@@ -690,12 +773,11 @@ export function SuggestMeRoot() {
                   onReroll={handleReroll}
                   onLaunch={handleLaunch}
                   onClear={handleClearSuggestion}
-                  isLoading={suggestionLoading}
                 />
                 <PanelSectionRow>
                   <Focusable
                     flow-children="row"
-                    style={{ display: 'flex', gap: 8, width: '100%', marginTop: 8, boxSizing: 'border-box' }}
+                    style={{ display: 'flex', gap: 8, width: '100%', boxSizing: 'border-box' }}
                   >
                     <Focusable
                       onActivate={currentGameInPlayNext && !justAddedToPlayNext ? handleRemoveCurrentFromPlayNext : handleAddToPlayNext}
@@ -730,7 +812,7 @@ export function SuggestMeRoot() {
                         justifyContent: 'center',
                         gap: 6,
                         padding: '10px 8px',
-                        backgroundColor: '#ff666622',
+                        backgroundColor: confirmingExclude ? '#ff666644' : '#ff666622',
                         borderRadius: 8,
                         border: '2px solid transparent',
                         cursor: 'pointer'
@@ -739,7 +821,9 @@ export function SuggestMeRoot() {
                       onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                     >
                       <FaBan size={12} style={{ color: '#ff6666', flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, color: '#ff6666', whiteSpace: 'nowrap' }}>Never Show</span>
+                      <span style={{ fontSize: 11, color: '#ff6666', whiteSpace: 'nowrap' }}>
+                        {confirmingExclude ? 'Tap to confirm' : 'Never Show'}
+                      </span>
                     </Focusable>
                   </Focusable>
                 </PanelSectionRow>
@@ -816,26 +900,26 @@ export function SuggestMeRoot() {
                 </PanelSectionRow>
               ))}
               <PanelSectionRow>
-                <Focusable
-                  onActivate={handleClearModeHistory}
-                  onClick={handleClearModeHistory}
-                  style={{
-                    width: '100%',
-                    textAlign: 'center',
-                    padding: '8px',
-                    backgroundColor: '#ff666611',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    border: '2px solid transparent',
-                    fontSize: 11,
-                    color: '#ff6666'
-                  }}
-                  onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                  onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                >
-                  <FaTrash size={10} style={{ marginRight: 6 }} />
-                  Clear All History
-                </Focusable>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <Focusable
+                    onActivate={() => navigateToHistory({ initialMode: activeTab })}
+                    onClick={() => navigateToHistory({ initialMode: activeTab })}
+                    style={{
+                      textAlign: 'center',
+                      padding: '8px 24px',
+                      backgroundColor: '#ffffff11',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      border: '2px solid transparent',
+                      fontSize: 11,
+                      color: '#fff'
+                    }}
+                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                  >
+                    View All History
+                  </Focusable>
+                </div>
               </PanelSectionRow>
             </PanelSection>
           )}

@@ -1,7 +1,7 @@
 # SuggestMe
 
 ![SuggestMe](https://img.shields.io/badge/Decky-Plugin-blue)
-![Version](https://img.shields.io/badge/release-v1.0.1-green)
+![Version](https://img.shields.io/badge/release-v1.1.0-green)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 
 ![SuggestMe Promo](assets/promo.png)
@@ -15,17 +15,24 @@ SuggestMe is a Decky Loader plugin that helps you decide what game to play next 
 ### Suggestion Modes
 - **Luck** - Random pick from your filtered library
 - **Guided** - Backlog clearing: least played games first
-- **Intelligent** - Recommends games similar to your recent gaming habits
-- **Fresh Air** - Something different from what you usually play
+- **Intelligent** - Recommends games similar to your recent gaming habits (fully tunable)
+- **Fresh Air** - Something different from what you usually play (fully tunable)
+
+### Mode Tuning
+Fine-tune how Intelligent and Fresh Air modes score games:
+- **Intelligent Mode** - Adjust recent games count, most-played count, recency decay, genre/tag/community tag weights, unplayed bonus, and top candidate percentile
+- **Fresh Air Mode** - Adjust genre/tag/community tag penalties, unplayed bonus, novel genre bonus, and top candidate percentile
+- Community tags are now integrated into the preference profile and scoring for both modes
 
 ### Powerful Filtering Engine
 - **Source** - Include or exclude Steam vs. Non-Steam games
 - **Playtime** - Set minimum/maximum hours played, filter for unplayed games only, or toggle installed-only games
-- **Genres** - Include or exclude official Steam genres (Action, RPG, Strategy, etc.)
-- **Steam Features** - Include or exclude official features (Single-player, Multi-player, Steam Achievements, etc.)
-- **Community Tags** - Filter by user-generated Steam community tags (Souls-like, Metroidvania, Roguelike, Open World, etc.)
+- **Genres** - Include or exclude official Steam genres (Action, RPG, Strategy, etc.) with search
+- **Steam Features** - Include or exclude official features (Single-player, Multi-player, Steam Achievements, etc.) with search
+- **Community Tags** - Filter by user-generated Steam community tags (Souls-like, Metroidvania, Roguelike, Open World, etc.) with search
 - **Deck Compatibility** - Filter by Valve Deck Verified status or ProtonDB ratings
 - **Collections** - Filter by your Steam user collections
+- **Filter Presets** - Save up to 5 filter combinations and quickly switch between them from the main screen
 
 ### Non-Steam Games Support
 - **Auto-detection** - Automatically detects Non-Steam games added to your library

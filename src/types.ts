@@ -48,10 +48,13 @@ export interface SuggestFilters {
 }
 
 export interface SuggestMeConfig {
-  steam_api_key: string;
-  steam_id: string;
-  default_mode: SuggestMode;
-  default_filters: SuggestFilters;
+  steam_api_key?: string;
+  steam_id?: string;
+  history_limit?: number;
+  mode_order?: SuggestMode[];
+  default_mode?: SuggestMode;
+  default_filters?: SuggestFilters;
+  hide_credentials?: boolean;
 }
 
 export interface SuggestionResult {
@@ -147,4 +150,57 @@ export const MODE_DESCRIPTIONS: Record<SuggestMode, string> = {
   intelligent: "Similar to your recent gaming habits",
   fresh_air: "Something different from what you usually play",
   luck: "Random pick from your library",
+};
+
+export interface IntelligentTuning {
+  recent_games_count: number;
+  most_played_count: number;
+  recency_decay_days: number;
+  recency_weight_floor: number;
+  playtime_weight_multiplier: number;
+  genre_score_weight: number;
+  tag_score_weight: number;
+  community_tag_score_weight: number;
+  unplayed_bonus: number;
+  not_recently_played_days: number;
+  not_recently_played_bonus: number;
+  top_candidate_percentile: number;
+}
+
+export interface FreshAirTuning {
+  genre_penalty_multiplier: number;
+  tag_penalty_multiplier: number;
+  community_tag_penalty_multiplier: number;
+  unplayed_bonus: number;
+  novel_genre_bonus: number;
+  top_candidate_percentile: number;
+}
+
+export interface ModeTuning {
+  intelligent: IntelligentTuning;
+  fresh_air: FreshAirTuning;
+}
+
+export const DEFAULT_INTELLIGENT_TUNING: IntelligentTuning = {
+  recent_games_count: 20,
+  most_played_count: 30,
+  recency_decay_days: 180,
+  recency_weight_floor: 0.1,
+  playtime_weight_multiplier: 0.6,
+  genre_score_weight: 1.0,
+  tag_score_weight: 0.5,
+  community_tag_score_weight: 0.4,
+  unplayed_bonus: 0.3,
+  not_recently_played_days: 30,
+  not_recently_played_bonus: 0.2,
+  top_candidate_percentile: 20,
+};
+
+export const DEFAULT_FRESH_AIR_TUNING: FreshAirTuning = {
+  genre_penalty_multiplier: 0.5,
+  tag_penalty_multiplier: 0.3,
+  community_tag_penalty_multiplier: 0.2,
+  unplayed_bonus: 0.5,
+  novel_genre_bonus: 0.2,
+  top_candidate_percentile: 20,
 };

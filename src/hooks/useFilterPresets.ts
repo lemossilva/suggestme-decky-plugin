@@ -5,7 +5,6 @@ import { FilterPreset, FilterPresetsState, SuggestFilters } from "../types";
 export function useFilterPresets() {
   const [presets, setPresets] = useState<(FilterPreset | null)[]>([null, null, null, null, null]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
   const loadPresets = useCallback(async () => {
     try {
@@ -16,8 +15,6 @@ export function useFilterPresets() {
       }
     } catch (e) {
       console.error("[SuggestMe] Failed to load filter presets:", e);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 
@@ -109,7 +106,6 @@ export function useFilterPresets() {
   return {
     presets,
     activeIndex,
-    isLoading,
     savePreset,
     renamePreset,
     deletePreset,

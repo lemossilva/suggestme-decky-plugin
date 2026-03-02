@@ -1,4 +1,5 @@
 import {
+    ConfirmModal,
     Focusable,
     Navigation,
     PanelSection,
@@ -7,12 +8,122 @@ import {
     SliderField,
     TextField,
     ToggleField,
+    showModal,
 } from "@decky/ui";
 import { routerHook } from "@decky/api";
 import { useState } from "react";
 import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash } from "react-icons/fa";
 import { SuggestFilters, DEFAULT_FILTERS } from "../types";
 import { useFilterPresets } from "../hooks/useFilterPresets";
+
+interface PresetLabelModalProps {
+    currentLabel: string;
+    onSave: (label: string) => void;
+    closeModal?: () => void;
+}
+
+function PresetLabelModalContent({ currentLabel, onSave, closeModal }: PresetLabelModalProps) {
+    const [label, setLabel] = useState(currentLabel);
+
+    const handleSave = () => {
+        const trimmed = label.trim().slice(0, 20);
+        onSave(trimmed || currentLabel);
+        closeModal?.();
+    };
+
+    return (
+        <ConfirmModal
+            strTitle="Rename Preset"
+            strDescription=""
+            strOKButtonText="Save"
+            strCancelButtonText="Cancel"
+            onOK={handleSave}
+            onCancel={() => closeModal?.()}
+        >
+            <div style={{ padding: '8px 0', minWidth: 300 }}>
+                <TextField
+                    label="Preset Name"
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value.slice(0, 20))}
+                />
+                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                    Max 20 characters ({20 - label.length} remaining)
+                </div>
+            </div>
+        </ConfirmModal>
+    );
+}
+
+function showPresetLabelModal(currentLabel: string, onSave: (label: string) => void) {
+    showModal(<PresetLabelModalContent currentLabel={currentLabel} onSave={onSave} />);
+}
+
+interface SearchModalProps {
+    title: string;
+    onSearch: (query: string) => void;
+    availableItems?: string[];
+    closeModal?: () => void;
+}
+
+function SearchModalContent({ title, onSearch, availableItems = [], closeModal }: SearchModalProps) {
+    const [query, setQuery] = useState("");
+    const [focusedItem, setFocusedItem] = useState<string | null>(null);
+
+    const handleSearch = (finalQuery: string) => {
+        onSearch(finalQuery.trim());
+        closeModal?.();
+    };
+
+    const suggestions = query.trim() && availableItems.length > 0
+        ? availableItems.filter(item => item.toLowerCase().includes(query.toLowerCase())).slice(0, 5)
+        : [];
+
+    return (
+        <ConfirmModal
+            strTitle={title}
+            strDescription=""
+            strOKButtonText="Search"
+            strCancelButtonText="Cancel"
+            onOK={() => handleSearch(query)}
+            onCancel={() => closeModal?.()}
+        >
+            <div style={{ padding: '8px 0', minWidth: 300 }}>
+                <TextField
+                    label="Search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                />
+                {suggestions.length > 0 && (
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {suggestions.map(item => (
+                            <Focusable
+                                key={item}
+                                onActivate={() => handleSearch(item)}
+                                onClick={() => handleSearch(item)}
+                                style={{
+                                    padding: '8px 12px',
+                                    backgroundColor: focusedItem === item ? '#4488aa' : '#ffffff11',
+                                    borderRadius: 4,
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    border: focusedItem === item ? '1px solid white' : '1px solid transparent'
+                                }}
+                                onFocus={() => setFocusedItem(item)}
+                                onBlur={() => setFocusedItem(null)}
+                            >
+                                {item}
+                            </Focusable>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </ConfirmModal>
+    );
+}
+
+function showSearchModal(title: string, onSearch: (query: string) => void, availableItems?: string[]) {
+    showModal(<SearchModalContent title={title} onSearch={onSearch} availableItems={availableItems} />);
+}
 
 export const FILTERS_ROUTE = '/suggestme/filters';
 
@@ -33,7 +144,9 @@ const MultiSelectChips = ({
     selected,
     excluded = [],
     onToggle,
-    maxVisible = 30 
+    maxVisible = 30,
+    showSearch = false,
+    searchTitle = "Search"
 }: { 
     title: string;
     available: string[]; 
@@ -41,14 +154,61 @@ const MultiSelectChips = ({
     excluded?: string[];
     onToggle: (item: string) => void;
     maxVisible?: number;
+    showSearch?: boolean;
+    searchTitle?: string;
 }) => {
     const [showAll, setShowAll] = useState(false);
-    const displayItems = showAll ? available : available.slice(0, maxVisible);
-    const hasMore = available.length > maxVisible;
+    const [searchQuery, setSearchQuery] = useState("");
+    
+    const filteredItems = searchQuery.trim()
+        ? available.filter(item => 
+            item.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            selected.includes(item) ||
+            excluded.includes(item)
+          )
+        : available;
+    
+    const displayItems = showAll || searchQuery.trim() ? filteredItems : filteredItems.slice(0, maxVisible);
+    const hasMore = filteredItems.length > maxVisible && !searchQuery.trim();
+
+    const handleOpenSearch = () => {
+        showSearchModal(searchTitle, (query) => {
+            setSearchQuery(query);
+        }, available);
+    };
 
     return (
         <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, marginBottom: 8, color: '#aaa' }}>{title}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, color: '#aaa' }}>{title}</div>
+                {showSearch && available.length > 10 && (
+                    <Focusable
+                        onActivate={handleOpenSearch}
+                        style={{
+                            padding: '4px 10px',
+                            backgroundColor: searchQuery ? '#4488aa33' : '#ffffff11',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            border: '2px solid transparent',
+                            fontSize: 11,
+                            color: searchQuery ? '#4488aa' : '#888',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4
+                        }}
+                        onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                        onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                    >
+                        {searchQuery ? `"${searchQuery}"` : 'Search'}
+                        {searchQuery && (
+                            <span 
+                                onClick={(e) => { e.stopPropagation(); setSearchQuery(""); }}
+                                style={{ marginLeft: 4, cursor: 'pointer' }}
+                            >×</span>
+                        )}
+                    </Focusable>
+                )}
+            </div>
             <Focusable
                 style={{
                     display: 'flex',
@@ -103,7 +263,7 @@ const MultiSelectChips = ({
                         onFocus={(e: any) => e.target.style.borderColor = 'white'}
                         onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                     >
-                        +{available.length - maxVisible} more
+                        +{filteredItems.length - maxVisible} more
                     </Focusable>
                 )}
             </Focusable>
@@ -135,6 +295,22 @@ const GameSourcePage = ({ filters, setFilters }: { filters: SuggestFilters; setF
                     onChange={(v) => setFilters({ ...filters, exclude_non_steam: v, non_steam_only: v ? false : filters.non_steam_only })}
                 />
             </PanelSectionRow>
+            <PanelSectionRow>
+                <ToggleField
+                    label="Installed only"
+                    description="Only suggest games currently installed"
+                    checked={filters.installed_only}
+                    onChange={(v) => setFilters({ ...filters, installed_only: v, not_installed_only: v ? false : filters.not_installed_only })}
+                />
+            </PanelSectionRow>
+            <PanelSectionRow>
+                <ToggleField
+                    label="Not installed only"
+                    description="Only suggest games not currently installed"
+                    checked={filters.not_installed_only}
+                    onChange={(v) => setFilters({ ...filters, not_installed_only: v, installed_only: v ? false : filters.installed_only })}
+                />
+            </PanelSectionRow>
         </PanelSection>
     </div>
 );
@@ -162,22 +338,6 @@ const PlaytimePage = ({ filters, setFilters }: { filters: SuggestFilters; setFil
                     description="Include games with 0 minutes playtime"
                     checked={filters.include_unplayed}
                     onChange={(v) => setFilters({ ...filters, include_unplayed: v })}
-                />
-            </PanelSectionRow>
-            <PanelSectionRow>
-                <ToggleField
-                    label="Installed only"
-                    description="Only suggest games currently installed"
-                    checked={filters.installed_only}
-                    onChange={(v) => setFilters({ ...filters, installed_only: v, not_installed_only: v ? false : filters.not_installed_only })}
-                />
-            </PanelSectionRow>
-            <PanelSectionRow>
-                <ToggleField
-                    label="Not installed only"
-                    description="Only suggest games not currently installed"
-                    checked={filters.not_installed_only}
-                    onChange={(v) => setFilters({ ...filters, not_installed_only: v, installed_only: v ? false : filters.installed_only })}
                 />
             </PanelSectionRow>
             <PanelSectionRow>
@@ -256,6 +416,8 @@ const GenresPage = ({ filters, setFilters, genres }: { filters: SuggestFilters; 
                             selected={filters.include_genres}
                             excluded={filters.exclude_genres}
                             onToggle={toggleInclude}
+                            showSearch
+                            searchTitle="Search Genres"
                         />
                         <MultiSelectChips
                             title="Exclude genres"
@@ -263,6 +425,8 @@ const GenresPage = ({ filters, setFilters, genres }: { filters: SuggestFilters; 
                             selected={filters.exclude_genres}
                             excluded={filters.include_genres}
                             onToggle={toggleExclude}
+                            showSearch
+                            searchTitle="Search Genres"
                         />
                     </>
                 )}
@@ -320,6 +484,8 @@ const TagsPage = ({ filters, setFilters, tags }: { filters: SuggestFilters; setF
                             selected={filters.include_tags}
                             excluded={filters.exclude_tags}
                             onToggle={toggleInclude}
+                            showSearch
+                            searchTitle="Search Features"
                         />
                         <MultiSelectChips
                             title="Exclude features"
@@ -327,6 +493,8 @@ const TagsPage = ({ filters, setFilters, tags }: { filters: SuggestFilters; setF
                             selected={filters.exclude_tags}
                             excluded={filters.include_tags}
                             onToggle={toggleExclude}
+                            showSearch
+                            searchTitle="Search Features"
                         />
                     </>
                 )}
@@ -385,6 +553,8 @@ const CommunityTagsPage = ({ filters, setFilters, communityTags }: { filters: Su
                             selected={includeTags}
                             excluded={excludeTags}
                             onToggle={toggleInclude}
+                            showSearch
+                            searchTitle="Search Community Tags"
                         />
                         <MultiSelectChips
                             title="Exclude tags"
@@ -392,6 +562,8 @@ const CommunityTagsPage = ({ filters, setFilters, communityTags }: { filters: Su
                             selected={excludeTags}
                             excluded={includeTags}
                             onToggle={toggleExclude}
+                            showSearch
+                            searchTitle="Search Community Tags"
                         />
                     </>
                 )}
@@ -581,9 +753,8 @@ const PresetsPage = ({
     onPresetChange: (label: string | null) => void;
 }) => {
     const { presets, activeIndex, savePreset, renamePreset, deletePreset, setActive } = useFilterPresets();
-    const [editingSlot, setEditingSlot] = useState<number | null>(null);
-    const [editLabel, setEditLabel] = useState("");
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [savedSlot, setSavedSlot] = useState<number | null>(null);
 
     const handleSaveToSlot = async (slotIndex: number) => {
         const existing = presets[slotIndex];
@@ -592,6 +763,8 @@ const PresetsPage = ({
         if (result.success) {
             onPresetChange(label);
             setSaveError(null);
+            setSavedSlot(slotIndex);
+            setTimeout(() => setSavedSlot(null), 2000);
         } else {
             setSaveError(result.error || "Failed to save");
             setTimeout(() => setSaveError(null), 3000);
@@ -610,17 +783,10 @@ const PresetsPage = ({
     const handleStartRename = (slotIndex: number) => {
         const preset = presets[slotIndex];
         if (preset) {
-            setEditingSlot(slotIndex);
-            setEditLabel(preset.label);
+            showPresetLabelModal(preset.label, async (newLabel) => {
+                await renamePreset(slotIndex, newLabel);
+            });
         }
-    };
-
-    const handleFinishRename = async () => {
-        if (editingSlot !== null && editLabel.trim()) {
-            await renamePreset(editingSlot, editLabel.trim());
-        }
-        setEditingSlot(null);
-        setEditLabel("");
     };
 
     const handleDelete = async (slotIndex: number) => {
@@ -665,72 +831,25 @@ const PresetsPage = ({
                         >
                             {preset ? (
                                 <>
-                                    {editingSlot === index ? (
-                                        <Focusable
-                                            flow-children="row"
-                                            style={{
-                                                flex: 1,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 8
-                                            }}
-                                        >
-                                            <div style={{ flex: 1 }}>
-                                                <TextField
-                                                    value={editLabel}
-                                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditLabel(e.target.value)}
-                                                />
-                                            </div>
-                                            <Focusable
-                                                onActivate={handleFinishRename}
-                                                style={{
-                                                    padding: '8px',
-                                                    backgroundColor: '#88ff8822',
-                                                    borderRadius: 6,
-                                                    cursor: 'pointer',
-                                                    border: '2px solid transparent'
-                                                }}
-                                                onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                                                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                                            >
-                                                <FaCheck size={12} style={{ color: '#88ff88' }} />
-                                            </Focusable>
-                                            <Focusable
-                                                onActivate={() => { setEditingSlot(null); setEditLabel(""); }}
-                                                style={{
-                                                    padding: '8px',
-                                                    backgroundColor: '#ff666622',
-                                                    borderRadius: 6,
-                                                    cursor: 'pointer',
-                                                    border: '2px solid transparent'
-                                                }}
-                                                onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                                                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                                            >
-                                                <FaTimes size={12} style={{ color: '#ff6666' }} />
-                                            </Focusable>
-                                        </Focusable>
-                                    ) : (
-                                        <Focusable
-                                            onActivate={() => handleLoadPreset(index)}
-                                            style={{
-                                                flex: 1,
-                                                padding: '8px 12px',
-                                                backgroundColor: activeIndex === index ? '#4488aa33' : '#ffffff11',
-                                                borderRadius: 8,
-                                                cursor: 'pointer',
-                                                border: '2px solid transparent',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 8
-                                            }}
-                                            onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                                            onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                                        >
-                                            {activeIndex === index && <FaCheck size={10} style={{ color: '#4488aa' }} />}
-                                            <span style={{ fontSize: 13 }}>{preset.label}</span>
-                                        </Focusable>
-                                    )}
+                                    <Focusable
+                                        onActivate={() => handleLoadPreset(index)}
+                                        style={{
+                                            flex: 1,
+                                            padding: '8px 12px',
+                                            backgroundColor: activeIndex === index ? '#4488aa33' : '#ffffff11',
+                                            borderRadius: 8,
+                                            cursor: 'pointer',
+                                            border: '2px solid transparent',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 8
+                                        }}
+                                        onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                        onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                    >
+                                        {activeIndex === index && <FaCheck size={10} style={{ color: '#4488aa' }} />}
+                                        <span style={{ fontSize: 13 }}>{preset.label}</span>
+                                    </Focusable>
                                     <Focusable
                                         onActivate={() => handleStartRename(index)}
                                         style={{
@@ -749,15 +868,20 @@ const PresetsPage = ({
                                         onActivate={() => handleSaveToSlot(index)}
                                         style={{
                                             padding: '8px',
-                                            backgroundColor: '#4488aa22',
+                                            backgroundColor: savedSlot === index ? '#88ff8833' : (activeIndex === index ? '#4488aa' : '#4488aa22'),
                                             borderRadius: 6,
                                             cursor: 'pointer',
-                                            border: '2px solid transparent'
+                                            border: '2px solid transparent',
+                                            transition: 'all 0.2s ease'
                                         }}
                                         onFocus={(e: any) => e.target.style.borderColor = 'white'}
                                         onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                                     >
-                                        <FaSave size={12} style={{ color: '#4488aa' }} />
+                                        {savedSlot === index ? (
+                                            <FaCheck size={12} style={{ color: '#88ff88' }} />
+                                        ) : (
+                                            <FaSave size={12} style={{ color: activeIndex === index ? '#fff' : '#4488aa' }} />
+                                        )}
                                     </Focusable>
                                     <Focusable
                                         onActivate={() => handleDelete(index)}
@@ -780,32 +904,44 @@ const PresetsPage = ({
                                     style={{
                                         flex: 1,
                                         padding: '8px 12px',
-                                        backgroundColor: '#ffffff08',
+                                        backgroundColor: savedSlot === index ? '#88ff8833' : '#ffffff08',
                                         borderRadius: 8,
                                         cursor: 'pointer',
                                         border: '2px solid transparent',
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: 8,
-                                        color: '#666'
+                                        color: savedSlot === index ? '#88ff88' : '#666',
+                                        transition: 'all 0.2s ease'
                                     }}
                                     onFocus={(e: any) => e.target.style.borderColor = 'white'}
                                     onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                                 >
-                                    <FaSave size={12} />
-                                    <span style={{ fontSize: 12 }}>Save to Slot {index + 1}</span>
+                                    {savedSlot === index ? <FaCheck size={12} /> : <FaSave size={12} />}
+                                    <span style={{ fontSize: 12 }}>{savedSlot === index ? 'Saved!' : `Save to Slot ${index + 1}`}</span>
                                 </Focusable>
                             )}
                         </Focusable>
                     </PanelSectionRow>
                 ))}
             </PanelSection>
+            <div style={{ 
+                borderBottom: '1px solid rgba(255, 255, 255, 0.15)', 
+                margin: '16px 0',
+                paddingTop: 8
+            }}>
+                <div style={{ fontSize: 10, color: '#666', textAlign: 'center', marginBottom: 8 }}>
+                    ↓ Filter Categories Below ↓
+                </div>
+            </div>
         </div>
     );
 };
 
 export const FiltersPage = () => {
     const props = currentFiltersProps;
+    const { setActive } = useFilterPresets();
+    
     if (!props) {
         return (
             <div style={{ padding: 24, color: '#ff6666' }}>
@@ -816,6 +952,15 @@ export const FiltersPage = () => {
 
     const [localFilters, setLocalFilters] = useState<SuggestFilters>(props.filters);
     const [resetFeedback, setResetFeedback] = useState(false);
+    const [filtersModified, setFiltersModified] = useState(false);
+
+    const handleFilterChange = (newFilters: SuggestFilters) => {
+        setLocalFilters(newFilters);
+        if (!filtersModified) {
+            setFiltersModified(true);
+            setActive(null);
+        }
+    };
 
     const handleSave = async () => {
         await props.onSave(localFilters);
@@ -824,6 +969,8 @@ export const FiltersPage = () => {
 
     const handleReset = () => {
         setLocalFilters(DEFAULT_FILTERS);
+        setFiltersModified(true);
+        setActive(null);
         setResetFeedback(true);
         setTimeout(() => setResetFeedback(false), 1500);
     };
@@ -832,42 +979,42 @@ export const FiltersPage = () => {
         {
             title: "Presets",
             icon: <FaSave size={16} />,
-            content: <PresetsPage filters={localFilters} setFilters={setLocalFilters} onPresetChange={() => {}} />
+            content: <PresetsPage filters={localFilters} setFilters={setLocalFilters} onPresetChange={() => setFiltersModified(false)} />
         },
         {
             title: "Source",
             icon: <FaExchangeAlt size={16} />,
-            content: <GameSourcePage filters={localFilters} setFilters={setLocalFilters} />
+            content: <GameSourcePage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
             title: "Playtime",
             icon: <FaClock size={16} />,
-            content: <PlaytimePage filters={localFilters} setFilters={setLocalFilters} />
+            content: <PlaytimePage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
             title: "Genres",
             icon: <FaGamepad size={16} />,
-            content: <GenresPage filters={localFilters} setFilters={setLocalFilters} genres={props.availableGenres} />
+            content: <GenresPage filters={localFilters} setFilters={handleFilterChange} genres={props.availableGenres} />
         },
         {
             title: "Features",
             icon: <FaTags size={16} />,
-            content: <TagsPage filters={localFilters} setFilters={setLocalFilters} tags={props.availableTags} />
+            content: <TagsPage filters={localFilters} setFilters={handleFilterChange} tags={props.availableTags} />
         },
         {
             title: "Community",
             icon: <FaUsers size={16} />,
-            content: <CommunityTagsPage filters={localFilters} setFilters={setLocalFilters} communityTags={props.availableCommunityTags} />
+            content: <CommunityTagsPage filters={localFilters} setFilters={handleFilterChange} communityTags={props.availableCommunityTags} />
         },
         {
             title: "Deck",
             icon: <FaSteam size={16} />,
-            content: <DeckCompatPage filters={localFilters} setFilters={setLocalFilters} />
+            content: <DeckCompatPage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
             title: "Collections",
             icon: <FaFolder size={16} />,
-            content: <CollectionsPage filters={localFilters} setFilters={setLocalFilters} collections={props.availableCollections} />
+            content: <CollectionsPage filters={localFilters} setFilters={handleFilterChange} collections={props.availableCollections} />
         }
     ];
 
@@ -919,8 +1066,8 @@ export const FiltersPage = () => {
                     onActivate={handleSave}
                     onClick={handleSave}
                     style={{
-                        flex: 1,
-                        padding: '8px 12px',
+                        flex: 3,
+                        padding: '8px 0px',
                         backgroundColor: '#4488aa',
                         borderRadius: 6,
                         textAlign: 'center',

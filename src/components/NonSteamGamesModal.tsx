@@ -348,18 +348,7 @@ export const NonSteamGamesPage = () => {
     };
 
     if (loading) {
-        return (
-            <div style={{ 
-                width: '100%', 
-                height: '100%', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                backgroundColor: '#0e141b'
-            }}>
-                <Spinner />
-            </div>
-        );
+        return null;
     }
 
     const matchedGames = (info?.games.filter(g => g.match_status === 'matched') || []).sort((a, b) => (a.original_name || a.name).localeCompare(b.original_name || b.name));

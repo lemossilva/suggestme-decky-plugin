@@ -7,6 +7,7 @@ import { FiltersPage, FILTERS_ROUTE } from "./components/FiltersModal";
 import { NonSteamGamesPage, NON_STEAM_ROUTE } from "./components/NonSteamGamesModal";
 import { PlayNextPage, PLAY_NEXT_ROUTE } from "./components/PlayNextModal";
 import { ExcludedGamesPage, EXCLUDED_GAMES_ROUTE } from "./components/ExcludedGamesModal";
+import { HistoryPage, HISTORY_ROUTE } from "./components/HistoryModal";
 
 export default definePlugin(() => {
   console.log("[SuggestMe] Plugin initializing");
@@ -16,6 +17,7 @@ export default definePlugin(() => {
   routerHook.addRoute(NON_STEAM_ROUTE, () => <NonSteamGamesPage />);
   routerHook.addRoute(PLAY_NEXT_ROUTE, () => <PlayNextPage />);
   routerHook.addRoute(EXCLUDED_GAMES_ROUTE, () => <ExcludedGamesPage />);
+  routerHook.addRoute(HISTORY_ROUTE, () => <HistoryPage />);
 
   return {
     name: "SuggestMe",
@@ -29,6 +31,7 @@ export default definePlugin(() => {
       routerHook.removeRoute(NON_STEAM_ROUTE);
       routerHook.removeRoute(PLAY_NEXT_ROUTE);
       routerHook.removeRoute(EXCLUDED_GAMES_ROUTE);
+      routerHook.removeRoute(HISTORY_ROUTE);
     },
   };
 });

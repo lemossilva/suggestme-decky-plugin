@@ -59,20 +59,17 @@ function getCollectionAppIds(collectionNames: string[]): number[] {
 
 export function useSuggestion() {
   const [currentSuggestion, setCurrentSuggestion] = useState<SuggestionResult | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   const requestSuggestion = useCallback(
     async (mode: SuggestMode, filters: SuggestFilters = DEFAULT_FILTERS): Promise<SuggestionResult | null> => {
-      setIsLoading(true);
       try {
         let installedAppIds: number[] = [];
         if (filters.installed_only || filters.not_installed_only) {
           installedAppIds = getInstalledAppIds();
         }
 
-        // We resolve collection names to appids here in the frontend 
-        // to avoid VDF parsing issues in the backend
+        // Resolve collection names to appids here in the frontend to avoid VDF parsing issues in the backend
         const enhancedFilters = { ...filters };
         if (filters.include_collections?.length) {
           enhancedFilters.include_collection_appids = getCollectionAppIds(filters.include_collections);
@@ -99,8 +96,6 @@ export function useSuggestion() {
         };
         setCurrentSuggestion(errorResult);
         return errorResult;
-      } finally {
-        setIsLoading(false);
       }
     },
     []
@@ -134,7 +129,6 @@ export function useSuggestion() {
 
   return {
     currentSuggestion,
-    isLoading,
     history,
     requestSuggestion,
     loadHistory,

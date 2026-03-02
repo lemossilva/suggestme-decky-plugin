@@ -152,9 +152,75 @@ class ExcludedGame:
             excluded_at=data.get("excluded_at", 0),
         )
 
+
+@dataclass
+class IntelligentTuning:
+    recent_games_count: int = 20
+    most_played_count: int = 30
+    recency_decay_days: int = 180
+    recency_weight_floor: float = 0.1
+    playtime_weight_multiplier: float = 0.6
+    genre_score_weight: float = 1.0
+    tag_score_weight: float = 0.5
+    community_tag_score_weight: float = 0.4
+    unplayed_bonus: float = 0.3
+    not_recently_played_days: int = 30
+    not_recently_played_bonus: float = 0.2
+    top_candidate_percentile: int = 20
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "IntelligentTuning":
+        return cls(
+            recent_games_count=data.get("recent_games_count", 20),
+            most_played_count=data.get("most_played_count", 30),
+            recency_decay_days=data.get("recency_decay_days", 180),
+            recency_weight_floor=data.get("recency_weight_floor", 0.1),
+            playtime_weight_multiplier=data.get("playtime_weight_multiplier", 0.6),
+            genre_score_weight=data.get("genre_score_weight", 1.0),
+            tag_score_weight=data.get("tag_score_weight", 0.5),
+            community_tag_score_weight=data.get("community_tag_score_weight", 0.4),
+            unplayed_bonus=data.get("unplayed_bonus", 0.3),
+            not_recently_played_days=data.get("not_recently_played_days", 30),
+            not_recently_played_bonus=data.get("not_recently_played_bonus", 0.2),
+            top_candidate_percentile=data.get("top_candidate_percentile", 20),
+        )
+
+
+@dataclass
+class FreshAirTuning:
+    genre_penalty_multiplier: float = 0.5
+    tag_penalty_multiplier: float = 0.3
+    community_tag_penalty_multiplier: float = 0.2
+    unplayed_bonus: float = 0.5
+    novel_genre_bonus: float = 0.2
+    top_candidate_percentile: int = 20
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FreshAirTuning":
+        return cls(
+            genre_penalty_multiplier=data.get("genre_penalty_multiplier", 0.5),
+            tag_penalty_multiplier=data.get("tag_penalty_multiplier", 0.3),
+            community_tag_penalty_multiplier=data.get("community_tag_penalty_multiplier", 0.2),
+            unplayed_bonus=data.get("unplayed_bonus", 0.5),
+            novel_genre_bonus=data.get("novel_genre_bonus", 0.2),
+            top_candidate_percentile=data.get("top_candidate_percentile", 20),
+        )
+
+
+DEFAULT_INTELLIGENT_TUNING = IntelligentTuning()
+DEFAULT_FRESH_AIR_TUNING = FreshAirTuning()
+
 DEFAULT_SETTINGS = {
     "steam_api_key": "",
     "steam_id": "",
+    "history_limit": 50,
+    "mode_order": ["luck", "guided", "intelligent", "fresh_air"],
     "default_mode": "luck",
     "default_filters": {
         "include_genres": [],
@@ -175,6 +241,9 @@ DEFAULT_SETTINGS = {
     },
     "filter_presets": [None, None, None, None, None],
     "active_preset_index": None,
+    "intelligent_tuning": DEFAULT_INTELLIGENT_TUNING.to_dict(),
+    "fresh_air_tuning": DEFAULT_FRESH_AIR_TUNING.to_dict(),
+    "hide_credentials": False
 }
 
 
@@ -187,6 +256,8 @@ class Plugin:
     last_refresh: Optional[int] = None
     is_refreshing: bool = False
     refresh_error: Optional[str] = None
+    intelligent_tuning: IntelligentTuning = DEFAULT_INTELLIGENT_TUNING
+    fresh_air_tuning: FreshAirTuning = DEFAULT_FRESH_AIR_TUNING
 
     def _get_settings_path(self) -> str:
         return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, SETTINGS_FILE)
@@ -260,12 +331,19 @@ class Plugin:
                 decky.logger.error(f"Failed to load settings: {e}")
         return DEFAULT_SETTINGS.copy()
 
+    def _load_tuning_from_settings(self):
+        intelligent_data = self.settings.get("intelligent_tuning", {})
+        fresh_air_data = self.settings.get("fresh_air_tuning", {})
+        self.intelligent_tuning = IntelligentTuning.from_dict(intelligent_data)
+        self.fresh_air_tuning = FreshAirTuning.from_dict(fresh_air_data)
+
     def _save_settings(self) -> bool:
         path = self._get_settings_path()
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w") as f:
                 json.dump(self.settings, f, indent=2)
+            os.chmod(path, 0o600)
             return True
         except Exception as e:
             decky.logger.error(f"Failed to save settings: {e}")
@@ -332,7 +410,8 @@ class Plugin:
             matched_appid=game.matched_appid,
         )
         self.history.insert(0, entry)
-        self.history = self.history[:50]
+        limit = self.settings.get("history_limit", 50)
+        self.history = self.history[:limit]
         self._save_history()
 
     def _detect_steam_id(self) -> Optional[str]:
@@ -379,6 +458,7 @@ class Plugin:
     async def _main(self):
         decky.logger.info("SuggestMe plugin loaded")
         self.settings = self._load_settings()
+        self._load_tuning_from_settings()
         self.library_cache, self.last_refresh = self._load_library_cache()
         self.history = self._load_history()
         self.play_next_list = self._load_play_next()
@@ -403,13 +483,35 @@ class Plugin:
         return {
             "steam_api_key": self.settings.get("steam_api_key", ""),
             "steam_id": self.settings.get("steam_id", ""),
+            "history_limit": self.settings.get("history_limit", 50),
+            "mode_order": self.settings.get("mode_order", ["luck", "guided", "intelligent", "fresh_air"]),
             "default_mode": self.settings.get("default_mode", "luck"),
             "default_filters": self.settings.get("default_filters", DEFAULT_SETTINGS["default_filters"]),
+            "hide_credentials": self.settings.get("hide_credentials", True)
         }
 
-    async def set_steam_credentials(self, api_key: str, steam_id: str) -> dict:
+    async def save_steam_credentials(self, api_key: str, steam_id: str) -> dict:
         self.settings["steam_api_key"] = api_key
         self.settings["steam_id"] = steam_id
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_hide_credentials(self, hide: bool) -> dict:
+        self.settings["hide_credentials"] = hide
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_history_limit(self, limit: int) -> dict:
+        self.settings["history_limit"] = limit
+        # Trim history if needed
+        if len(self.history) > limit:
+            self.history = self.history[:limit]
+            self._save_history()
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_mode_order(self, order: list) -> dict:
+        self.settings["mode_order"] = order
         success = self._save_settings()
         return {"success": success}
 
@@ -624,10 +726,15 @@ class Plugin:
         if not steam_id or not steam_id.isdigit() or len(steam_id) != 17:
             raise Exception(f"Invalid Steam ID format. Must be 17-digit Steam ID 64 (e.g. 76561198012345678). Got: {steam_id}")
         
-        url = f"http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={api_key}&steamid={steam_id}&include_appinfo=1&include_played_free_games=1&format=json"
-        decky.logger.info(f"Fetching games from: {url[:80]}...")
+        url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={api_key}&steamid={steam_id}&include_appinfo=1&include_played_free_games=1&format=json"
         
-        async with aiohttp.ClientSession() as session:
+        # Mask key in logs
+        masked_url = url.replace(f"key={api_key}", f"key={api_key[:4]}...{api_key[-4:]}") if api_key else url
+        decky.logger.info(f"Fetching games from: {masked_url[:100]}...")
+        
+        ssl_ctx = _create_ssl_context()
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(url) as response:
                 if response.status != 200:
                     body = await response.text()
@@ -884,7 +991,7 @@ class Plugin:
 
     def _save_sync_progress(self, current: int, total: int, games: list[Game]) -> None:
         try:
-            progress_file = self.plugin_dir / "sync_progress.json"
+            progress_file = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "sync_progress.json")
             progress_data = {
                 "current": current,
                 "total": total,
@@ -898,33 +1005,38 @@ class Plugin:
 
     def _load_sync_progress(self) -> dict | None:
         try:
-            progress_file = self.plugin_dir / "sync_progress.json"
-            if progress_file.exists():
+            progress_file = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "sync_progress.json")
+            if os.path.exists(progress_file):
                 with open(progress_file, 'r') as f:
                     data = json.load(f)
-                if time.time() - data.get("timestamp", 0) < 3600:
-                    return data
-                progress_file.unlink()
+                
+                # Auto-expire after 1 hour
+                if time.time() - data.get("timestamp", 0) > 3600:
+                    self._clear_sync_progress()
+                    return None
+                    
+                return data
         except Exception as e:
             decky.logger.debug(f"Failed to load sync progress: {e}")
         return None
 
     def _clear_sync_progress(self) -> None:
         try:
-            progress_file = self.plugin_dir / "sync_progress.json"
-            if progress_file.exists():
-                progress_file.unlink()
+            progress_file = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "sync_progress.json")
+            if os.path.exists(progress_file):
+                os.remove(progress_file)
         except Exception:
             pass
 
     async def _fetch_game_metadata_batch(self, games: list[Game], batch_size: int = 5, start_from: int = 0) -> None:
         async def fetch_single(game: Game):
             try:
+                fetch_appid = game.matched_appid if game.is_non_steam and game.matched_appid else game.appid
                 details, deck_status, protondb, steam_tags = await asyncio.gather(
-                    self._fetch_game_details(game.appid),
-                    self._fetch_deck_status(game.appid),
-                    self._fetch_protondb_tier(game.appid),
-                    self._fetch_steam_tags(game.appid),
+                    self._fetch_game_details(fetch_appid),
+                    self._fetch_deck_status(fetch_appid),
+                    self._fetch_protondb_tier(fetch_appid),
+                    self._fetch_steam_tags(fetch_appid),
                     return_exceptions=True
                 )
                 if isinstance(details, dict):
@@ -1167,81 +1279,115 @@ class Plugin:
         return sorted_games[:n]
 
     def _compute_preference_profile(self, recent_games: list[Game], most_played: list[Game] = None) -> dict:
+        tuning = self.intelligent_tuning
         genre_scores: dict[str, float] = {}
         tag_scores: dict[str, float] = {}
+        community_tag_scores: dict[str, float] = {}
 
         now = time.time()
         for game in recent_games:
             days_ago = (now - (game.rtime_last_played or 0)) / 86400 if game.rtime_last_played else 365
-            recency_weight = max(0.1, 1.0 - (days_ago / 180))
+            recency_weight = max(tuning.recency_weight_floor, 1.0 - (days_ago / tuning.recency_decay_days))
             for genre in game.genres:
                 g = genre.lower()
                 genre_scores[g] = genre_scores.get(g, 0) + recency_weight
             for tag in game.tags:
                 t = tag.lower()
-                tag_scores[t] = tag_scores.get(t, 0) + recency_weight * 0.5
+                tag_scores[t] = tag_scores.get(t, 0) + recency_weight * tuning.tag_score_weight
+            for ctag in game.community_tags:
+                ct = ctag.lower()
+                community_tag_scores[ct] = community_tag_scores.get(ct, 0) + recency_weight * tuning.community_tag_score_weight
 
         if most_played:
             max_pt = max(g.playtime_forever for g in most_played) if most_played else 1
             for game in most_played:
-                pt_weight = (game.playtime_forever / max_pt) * 0.6
+                pt_weight = (game.playtime_forever / max_pt) * tuning.playtime_weight_multiplier
                 for genre in game.genres:
                     g = genre.lower()
                     genre_scores[g] = genre_scores.get(g, 0) + pt_weight
                 for tag in game.tags:
                     t = tag.lower()
-                    tag_scores[t] = tag_scores.get(t, 0) + pt_weight * 0.4
+                    tag_scores[t] = tag_scores.get(t, 0) + pt_weight * tuning.tag_score_weight
+                for ctag in game.community_tags:
+                    ct = ctag.lower()
+                    community_tag_scores[ct] = community_tag_scores.get(ct, 0) + pt_weight * tuning.community_tag_score_weight
 
         total = (len(recent_games) + len(most_played or [])) or 1
         return {
             "genres": {k: v / total for k, v in genre_scores.items()},
             "tags": {k: v / total for k, v in tag_scores.items()},
+            "community_tags": {k: v / total for k, v in community_tag_scores.items()},
         }
 
     def _score_intelligent(self, game: Game, profile: dict) -> float:
+        tuning = self.intelligent_tuning
         score = 0.0
         genre_profile = profile.get("genres", {})
         tag_profile = profile.get("tags", {})
+        community_tag_profile = profile.get("community_tags", {})
 
         for genre in game.genres:
-            score += genre_profile.get(genre.lower(), 0)
+            score += genre_profile.get(genre.lower(), 0) * tuning.genre_score_weight
 
         for tag in game.tags:
-            score += tag_profile.get(tag.lower(), 0) * 0.5
+            score += tag_profile.get(tag.lower(), 0) * tuning.tag_score_weight
+
+        for ctag in game.community_tags:
+            score += community_tag_profile.get(ctag.lower(), 0) * tuning.community_tag_score_weight
 
         if game.playtime_forever == 0:
-            score += 0.3
+            score += tuning.unplayed_bonus
 
         if game.rtime_last_played:
             days_since = (time.time() - game.rtime_last_played) / 86400
-            if days_since > 30:
-                score += 0.2
+            if days_since > tuning.not_recently_played_days:
+                score += tuning.not_recently_played_bonus
 
         return score
 
     def _score_fresh_air(self, game: Game, profile: dict) -> float:
+        tuning = self.fresh_air_tuning
         score = 1.0
         genre_profile = profile.get("genres", {})
         tag_profile = profile.get("tags", {})
+        community_tag_profile = profile.get("community_tags", {})
 
         for genre in game.genres:
-            score -= genre_profile.get(genre.lower(), 0) * 0.5
+            score -= genre_profile.get(genre.lower(), 0) * tuning.genre_penalty_multiplier
 
         for tag in game.tags:
-            score -= tag_profile.get(tag.lower(), 0) * 0.3
+            score -= tag_profile.get(tag.lower(), 0) * tuning.tag_penalty_multiplier
+
+        for ctag in game.community_tags:
+            score -= community_tag_profile.get(ctag.lower(), 0) * tuning.community_tag_penalty_multiplier
 
         if game.playtime_forever == 0:
-            score += 0.5
+            score += tuning.unplayed_bonus
 
         all_genres = set(genre_profile.keys())
         game_genres = set(g.lower() for g in game.genres)
         novel_genres = game_genres - all_genres
-        score += len(novel_genres) * 0.2
+        score += len(novel_genres) * tuning.novel_genre_bonus
 
         return max(0, score)
 
     def _get_mode_history_appids(self, mode: str) -> set[int]:
         return set(h.appid for h in self.history if h.mode == mode)
+
+    async def get_candidates_count(self, filters: dict, installed_appids: list[int] = None) -> dict:
+        if not self.library_cache:
+            return {"count": 0, "excluded_count": 0}
+        
+        installed_set = set(installed_appids) if installed_appids else set()
+        
+        user_collections = None
+        include_cols = filters.get("include_collections", [])
+        exclude_cols = filters.get("exclude_collections", [])
+        if include_cols or exclude_cols:
+            user_collections = await self._get_user_collections()
+            
+        candidates, excluded_count = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
+        return {"count": len(candidates), "excluded_count": excluded_count}
 
     async def get_suggestion(self, mode: str, filters: dict, installed_appids: list[int] = None) -> dict:
         if not self.library_cache:
@@ -1293,23 +1439,26 @@ class Plugin:
             selected_game = random.choice(top_pool)
 
         elif mode == SuggestMode.INTELLIGENT.value:
-            recent_games = self._get_recent_games(20)
-            most_played = self._get_most_played_games(30)
+            tuning = self.intelligent_tuning
+            recent_games = self._get_recent_games(tuning.recent_games_count)
+            most_played = self._get_most_played_games(tuning.most_played_count)
             profile = self._compute_preference_profile(recent_games, most_played)
             scored = [(g, self._score_intelligent(g, profile)) for g in fresh_candidates]
             scored.sort(key=lambda x: x[1], reverse=True)
-            top_n = max(5, len(scored) // 5)
+            top_n = max(5, len(scored) * tuning.top_candidate_percentile // 100)
             top_pool = scored[:top_n]
             weights = [max(0.01, s) for _, s in top_pool]
             selected_game = random.choices([g for g, _ in top_pool], weights=weights, k=1)[0]
 
         elif mode == SuggestMode.FRESH_AIR.value:
-            recent_games = self._get_recent_games(20)
-            most_played = self._get_most_played_games(30)
+            tuning_fa = self.fresh_air_tuning
+            tuning_int = self.intelligent_tuning
+            recent_games = self._get_recent_games(tuning_int.recent_games_count)
+            most_played = self._get_most_played_games(tuning_int.most_played_count)
             profile = self._compute_preference_profile(recent_games, most_played)
             scored = [(g, self._score_fresh_air(g, profile)) for g in fresh_candidates]
             scored.sort(key=lambda x: x[1], reverse=True)
-            top_n = max(5, len(scored) // 5)
+            top_n = max(5, len(scored) * tuning_fa.top_candidate_percentile // 100)
             top_pool = scored[:top_n]
             weights = [max(0.01, s) for _, s in top_pool]
             selected_game = random.choices([g for g, _ in top_pool], weights=weights, k=1)[0]
@@ -1460,16 +1609,16 @@ class Plugin:
             
             decky.logger.info(f"Found {len(unique_detected)} unique Non-Steam games")
 
-            existing_non_steam_names = set()
             non_steam_games: list[Game] = []
+            processed_names = set()
             
             for ns_game in unique_detected:
                 name = ns_game.get("name", "")
                 name_key = name.lower().strip()
                 
-                if name_key in existing_non_steam_names:
+                if name_key in processed_names:
                     continue
-                existing_non_steam_names.add(name_key)
+                processed_names.add(name_key)
                 
                 game = Game(
                     appid=ns_game.get("appid", 0),
@@ -1686,96 +1835,12 @@ class Plugin:
             decky.logger.error(f"Factory reset failed: {e}")
             return {"success": False, "error": str(e)}
 
-    def _get_gamescope_display(self) -> str:
-        gamescope_env = "/run/user/1000/gamescope-environment"
-        if os.path.exists(gamescope_env):
-            try:
-                with open(gamescope_env, 'r') as f:
-                    for line in f:
-                        if line.startswith('DISPLAY='):
-                            return line.strip().split('=', 1)[1]
-            except Exception:
-                pass
-        return ":1"
-
-    async def read_clipboard(self) -> dict:
-        import subprocess
-        display = self._get_gamescope_display()
-        xauth = "/home/deck/.Xauthority"
-        
-        methods = [
-            {
-                "cmd": f'DISPLAY={display} XAUTHORITY={xauth} xclip -selection clipboard -o',
-                "shell": True,
-                "user": "deck"
-            },
-            {
-                "cmd": ["xclip", "-selection", "clipboard", "-o"],
-                "shell": False,
-                "env": {"DISPLAY": display, "XAUTHORITY": xauth}
-            },
-            {
-                "cmd": ["wl-paste", "--no-newline"],
-                "shell": False,
-                "env": {}
-            },
-        ]
-        
-        for method in methods:
-            try:
-                if method.get("user") == "deck":
-                    result = subprocess.run(
-                        ["sudo", "-u", "deck", "bash", "-c", method["cmd"]],
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
-                elif method.get("shell"):
-                    result = subprocess.run(
-                        method["cmd"],
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
-                else:
-                    env = os.environ.copy()
-                    env.update(method.get("env", {}))
-                    result = subprocess.run(
-                        method["cmd"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                        env=env
-                    )
-                
-                if result.returncode == 0 and result.stdout:
-                    return {"success": True, "text": result.stdout.strip()}
-                    
-                decky.logger.debug(f"Clipboard method failed: rc={result.returncode}, stderr={result.stderr}")
-            except Exception as e:
-                decky.logger.debug(f"Clipboard method exception: {e}")
-                continue
-
-        return {"success": False, "error": "No clipboard tool available"}
-
     async def clear_cache(self) -> dict:
         try:
-            api_key = self.settings.get("steam_api_key", "")
-            steam_id = self.settings.get("steam_id", "")
             self.library_cache = []
-            self.history = []
             self.last_refresh = None
-            self.settings = {
-                "steam_api_key": api_key,
-                "steam_id": steam_id,
-                "default_mode": "luck",
-                "default_filters": DEFAULT_SETTINGS["default_filters"]
-            }
-            self._save_settings()
             self._save_library_cache()
-            self._save_history()
-            decky.logger.info("Cache cleared (credentials preserved)")
+            decky.logger.info("Cache cleared (history and presets preserved)")
             return {"success": True}
         except Exception as e:
             decky.logger.error(f"Clear cache failed: {e}")
@@ -1803,3 +1868,58 @@ class Plugin:
                     return {"success": False, "error": f"No match found for '{new_search_term}'"}
         
         return {"success": False, "error": "Game not found"}
+
+    async def get_mode_tuning(self) -> dict:
+        return {
+            "intelligent": self.intelligent_tuning.to_dict(),
+            "fresh_air": self.fresh_air_tuning.to_dict(),
+        }
+
+    async def save_mode_tuning(self, mode: str, tuning: dict) -> dict:
+        try:
+            if mode == "intelligent":
+                self.intelligent_tuning = IntelligentTuning.from_dict(tuning)
+                self.settings["intelligent_tuning"] = self.intelligent_tuning.to_dict()
+            elif mode == "fresh_air":
+                self.fresh_air_tuning = FreshAirTuning.from_dict(tuning)
+                self.settings["fresh_air_tuning"] = self.fresh_air_tuning.to_dict()
+            else:
+                return {"success": False, "error": f"Unknown mode: {mode}"}
+            
+            self._save_settings()
+            return {"success": True}
+        except Exception as e:
+            decky.logger.error(f"Failed to save mode tuning: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def reset_mode_tuning(self, mode: str) -> dict:
+        try:
+            if mode == "intelligent":
+                self.intelligent_tuning = IntelligentTuning()
+                self.settings["intelligent_tuning"] = self.intelligent_tuning.to_dict()
+            elif mode == "fresh_air":
+                self.fresh_air_tuning = FreshAirTuning()
+                self.settings["fresh_air_tuning"] = self.fresh_air_tuning.to_dict()
+            else:
+                return {"success": False, "error": f"Unknown mode: {mode}"}
+            
+            self._save_settings()
+            return {"success": True, "tuning": self.intelligent_tuning.to_dict() if mode == "intelligent" else self.fresh_air_tuning.to_dict()}
+        except Exception as e:
+            decky.logger.error(f"Failed to reset mode tuning: {e}")
+            return {"success": False, "error": str(e)}
+        try:
+            if mode == "intelligent":
+                self.intelligent_tuning = IntelligentTuning()
+                self.settings["intelligent_tuning"] = self.intelligent_tuning.to_dict()
+            elif mode == "fresh_air":
+                self.fresh_air_tuning = FreshAirTuning()
+                self.settings["fresh_air_tuning"] = self.fresh_air_tuning.to_dict()
+            else:
+                return {"success": False, "error": f"Unknown mode: {mode}"}
+            
+            self._save_settings()
+            return {"success": True, "tuning": self.intelligent_tuning.to_dict() if mode == "intelligent" else self.fresh_air_tuning.to_dict()}
+        except Exception as e:
+            decky.logger.error(f"Failed to reset mode tuning: {e}")
+            return {"success": False, "error": str(e)}

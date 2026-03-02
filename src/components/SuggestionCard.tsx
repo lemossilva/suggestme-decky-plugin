@@ -10,7 +10,6 @@ interface SuggestionCardProps {
   onReroll: () => void;
   onLaunch: () => void;
   onClear: () => void;
-  isLoading?: boolean;
 }
 
 export function SuggestionCard({
@@ -21,7 +20,6 @@ export function SuggestionCard({
   onReroll,
   onLaunch,
   onClear,
-  isLoading,
 }: SuggestionCardProps) {
   const formatPlaytime = (minutes: number): string => {
     if (minutes === 0) return "Never played";
@@ -54,7 +52,7 @@ export function SuggestionCard({
         background: "var(--gpSystemLighterGrey)",
         borderRadius: "8px",
         overflow: "hidden",
-        marginBottom: "12px",
+        marginBottom: "0px",
       }}
     >
       <div
@@ -125,21 +123,21 @@ export function SuggestionCard({
         </div>
 
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={onLaunch} disabled={isLoading}>
+          <ButtonItem layout="below" onClick={onLaunch}>
             <FaExternalLinkAlt style={{ marginRight: "8px" }} />
             View Game
           </ButtonItem>
         </PanelSectionRow>
 
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={onReroll} disabled={isLoading}>
+          <ButtonItem layout="below" onClick={onReroll}>
             <FaDice style={{ marginRight: "8px" }} />
             Pick Another
           </ButtonItem>
         </PanelSectionRow>
 
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={onClear} disabled={isLoading}>
+          <ButtonItem layout="below" onClick={onClear}>
             <FaTimes style={{ marginRight: "8px" }} />
             Clear Suggestion
           </ButtonItem>

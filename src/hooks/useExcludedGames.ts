@@ -4,18 +4,13 @@ import { ExcludedGame, Game } from "../types";
 
 export function useExcludedGames() {
   const [list, setList] = useState<ExcludedGame[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   const loadList = useCallback(async () => {
     try {
-      const result = await call<[], { games: ExcludedGame[]; count: number }>("get_excluded_games");
-      if (result) {
-        setList(result.games || []);
-      }
+      const result = await call<[], ExcludedGame[]>("get_excluded_games");
+      if (result) setList(result);
     } catch (e) {
       console.error("[SuggestMe] Failed to load excluded games:", e);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 
@@ -86,7 +81,6 @@ export function useExcludedGames() {
   return {
     list,
     count: list.length,
-    isLoading,
     excludeGame,
     unexcludeGame,
     clearAll,

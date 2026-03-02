@@ -4,7 +4,6 @@ import { PlayNextEntry, Game } from "../types";
 
 export function usePlayNext() {
   const [list, setList] = useState<PlayNextEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   const loadList = useCallback(async () => {
     try {
@@ -14,8 +13,6 @@ export function usePlayNext() {
       }
     } catch (e) {
       console.error("[SuggestMe] Failed to load play next list:", e);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 
@@ -78,7 +75,6 @@ export function usePlayNext() {
   return {
     list,
     count: list.length,
-    isLoading,
     addGame,
     removeGame,
     clearList,

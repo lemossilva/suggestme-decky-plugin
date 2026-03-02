@@ -6,16 +6,17 @@ import {
     PanelSectionRow,
     ProgressBar,
     SidebarNavigation,
+    SliderField,
     Spinner,
     TextField,
 } from "@decky/ui";
-import { useState, useEffect, useRef } from "react";
-import { FaKey, FaSteam, FaSync, FaCopy, FaDatabase, FaInfoCircle, FaWifi, FaLock, FaCheck, FaExclamationTriangle, FaGamepad, FaChevronRight, FaTrash, FaWrench } from "react-icons/fa";
+import { ReactNode, useState, useEffect, useCallback, useRef } from "react";
+import { FaKey, FaSteam, FaSync, FaCopy, FaDatabase, FaInfoCircle, FaWifi, FaLock, FaCheck, FaExclamationTriangle, FaGamepad, FaChevronRight, FaTrash, FaWrench, FaSlidersH, FaUndo, FaArrowUp, FaArrowDown, FaEye, FaEyeSlash } from "react-icons/fa";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { useLibraryStatus } from "../hooks/useLibraryStatus";
 import { navigateToNonSteamGames } from "./NonSteamGamesModal";
 import { call, toaster } from "@decky/api";
-import { NonSteamGamesInfo } from "../types";
+import { NonSteamGamesInfo, IntelligentTuning, FreshAirTuning, DEFAULT_INTELLIGENT_TUNING, DEFAULT_FRESH_AIR_TUNING, ModeTuning, SuggestMode, MODE_LABELS } from "../types";
 
 export const SETTINGS_ROUTE = '/suggestme/settings';
 
@@ -132,11 +133,12 @@ const CopyableLink = ({ url, label }: { url: string; label: string }) => {
 };
 
 const CredentialsPage = () => {
-    const { config, setSteamCredentials, isSaving } = useSuggestMeConfig();
+    const { config, setSteamCredentials, setHideCredentials } = useSuggestMeConfig();
     const [apiKey, setApiKey] = useState(config.steam_api_key || "");
     const [steamId, setSteamId] = useState(config.steam_id || "");
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
     const [detectedId, setDetectedId] = useState<string | null>(null);
+    const showCredentials = !(config.hide_credentials ?? true);
 
     useEffect(() => {
         setApiKey(config.steam_api_key || "");
@@ -221,17 +223,54 @@ const CredentialsPage = () => {
                     />
                 </PanelSectionRow>
                 <PanelSectionRow>
-                    <Focusable style={{ width: '100%' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <FaKey size={14} style={{ color: '#888' }} />
-                            <span style={{ fontSize: 13 }}>API Key (32 characters)</span>
+                    <div style={{ width: '100%' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <FaKey size={14} style={{ color: '#888' }} />
+                                <span style={{ fontSize: 13 }}>API Key (32 characters)</span>
+                            </div>
+                            <Focusable
+                                onActivate={() => setHideCredentials(!config.hide_credentials)}
+                                onClick={() => setHideCredentials(!config.hide_credentials)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '4px 8px',
+                                    backgroundColor: '#ffffff11',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                    border: '2px solid transparent'
+                                }}
+                                onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                            >
+                                {showCredentials ? <FaEyeSlash size={12} /> : <FaEye size={12} />}
+                                <span style={{ fontSize: 11 }}>{showCredentials ? "Hide" : "Show"}</span>
+                            </Focusable>
                         </div>
-                        <TextField
-                            value={apiKey}
-                            onChange={(e) => setApiKey(e.target.value)}
-                            bIsPassword={true}
-                        />
-                    </Focusable>
+                        {showCredentials ? (
+                            <TextField
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                            />
+                        ) : (
+                            <Focusable 
+                                onActivate={() => setHideCredentials(false)}
+                                onClick={() => setHideCredentials(false)}
+                                style={{
+                                padding: '10px 12px',
+                                backgroundColor: '#00000033',
+                                borderRadius: 4,
+                                color: '#888',
+                                fontSize: 13,
+                                fontStyle: 'italic',
+                                cursor: 'pointer'
+                            }}>
+                                API Key is hidden. Click here or "Show" to view/edit.
+                            </Focusable>
+                        )}
+                    </div>
                 </PanelSectionRow>
                 {apiKey && apiKeyValidation.message && (
                     <PanelSectionRow>
@@ -280,16 +319,54 @@ const CredentialsPage = () => {
                     />
                 </PanelSectionRow>
                 <PanelSectionRow>
-                    <Focusable style={{ width: '100%' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <FaSteam size={14} style={{ color: '#888' }} />
-                            <span style={{ fontSize: 13 }}>Steam ID 64 (17 digits)</span>
+                    <div style={{ width: '100%' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <FaSteam size={14} style={{ color: '#888' }} />
+                                <span style={{ fontSize: 13 }}>Steam ID 64 (17 digits)</span>
+                            </div>
+                            <Focusable
+                                onActivate={() => setHideCredentials(!config.hide_credentials)}
+                                onClick={() => setHideCredentials(!config.hide_credentials)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '4px 8px',
+                                    backgroundColor: '#ffffff11',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                    border: '2px solid transparent'
+                                }}
+                                onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                            >
+                                {showCredentials ? <FaEyeSlash size={12} /> : <FaEye size={12} />}
+                                <span style={{ fontSize: 11 }}>{showCredentials ? "Hide" : "Show"}</span>
+                            </Focusable>
                         </div>
-                        <TextField
-                            value={steamId}
-                            onChange={(e) => setSteamId(e.target.value)}
-                        />
-                    </Focusable>
+                        {showCredentials ? (
+                            <TextField
+                                value={steamId}
+                                onChange={(e) => setSteamId(e.target.value)}
+                            />
+                        ) : (
+                            <Focusable 
+                                onActivate={() => setHideCredentials(false)}
+                                onClick={() => setHideCredentials(false)}
+                                style={{
+                                padding: '10px 12px',
+                                backgroundColor: '#00000033',
+                                borderRadius: 4,
+                                color: '#888',
+                                fontSize: 13,
+                                fontStyle: 'italic',
+                                cursor: 'pointer'
+                            }}>
+                                Steam ID is hidden. Click here or "Show" to view/edit.
+                            </Focusable>
+                        )}
+                    </div>
                 </PanelSectionRow>
                 {steamId && steamIdValidation.message && (
                     <PanelSectionRow>
@@ -316,9 +393,9 @@ const CredentialsPage = () => {
                     <ButtonItem
                         layout="below"
                         onClick={handleSaveCredentials}
-                        disabled={isSaving || !canSave}
+                        disabled={!canSave}
                     >
-                        {isSaving ? "Saving..." : "Save Credentials"}
+                        Save Credentials
                     </ButtonItem>
                 </PanelSectionRow>
                 {saveMessage && (
@@ -332,6 +409,124 @@ const CredentialsPage = () => {
                         </div>
                     </PanelSectionRow>
                 )}
+            </PanelSection>
+        </ScrollableContent>
+    );
+};
+
+const GeneralSettingsPage = () => {
+    const { config, setHistoryLimit, setModeOrder } = useSuggestMeConfig();
+    const [historyLimit, setHistoryLimitState] = useState(config.history_limit || 50);
+    const [modeOrder, setModeOrderState] = useState<SuggestMode[]>(config.mode_order || ["luck", "guided", "intelligent", "fresh_air"]);
+
+    // Ensure a valid mode order with all modes present
+    useEffect(() => {
+        const defaultOrder: SuggestMode[] = ["luck", "guided", "intelligent", "fresh_air"];
+        const currentOrder = config.mode_order || [];
+        
+        // If config is missing modes or has duplicates, reset/merge
+        const uniqueCurrent = Array.from(new Set(currentOrder));
+        const missing = defaultOrder.filter(m => !uniqueCurrent.includes(m));
+        
+        if (missing.length > 0 || uniqueCurrent.length !== defaultOrder.length) {
+            setModeOrderState([...uniqueCurrent, ...missing]);
+        } else {
+            setModeOrderState(uniqueCurrent);
+        }
+    }, [config.mode_order]);
+
+    const handleHistoryLimitChange = (value: number) => {
+        setHistoryLimitState(value);
+        setHistoryLimit(value);
+    };
+
+    const moveMode = async (index: number, direction: 'up' | 'down') => {
+        if ((direction === 'up' && index === 0) || (direction === 'down' && index === modeOrder.length - 1)) {
+            return;
+        }
+
+        const newOrder = [...modeOrder];
+        const swapIndex = direction === 'up' ? index - 1 : index + 1;
+        [newOrder[index], newOrder[swapIndex]] = [newOrder[swapIndex], newOrder[index]];
+        
+        setModeOrderState(newOrder);
+        await setModeOrder(newOrder);
+    };
+
+    return (
+        <ScrollableContent>
+            <PanelSection title="History">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>
+                        Limit the number of previously suggested games stored.
+                    </div>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <SliderField
+                        label="History Size"
+                        value={historyLimit}
+                        min={10}
+                        max={100}
+                        step={5}
+                        onChange={handleHistoryLimitChange}
+                        showValue
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+
+            <PanelSection title="Tab Ordering">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 12, color: '#aaa', marginBottom: 12 }}>
+                        Reorder the suggestion mode tabs on the main screen.
+                    </div>
+                </PanelSectionRow>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {modeOrder.map((mode, index) => (
+                        <PanelSectionRow key={mode}>
+                            <Focusable
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '10px 12px',
+                                    backgroundColor: '#ffffff11',
+                                    borderRadius: 8,
+                                    border: '2px solid transparent'
+                                }}
+                                onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                            >
+                                <span style={{ fontSize: 13 }}>{MODE_LABELS[mode]}</span>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                    <Focusable
+                                        onActivate={index === 0 ? undefined : () => moveMode(index, 'up')}
+                                        style={{
+                                            padding: '6px',
+                                            borderRadius: 4,
+                                            backgroundColor: '#ffffff11',
+                                            opacity: index === 0 ? 0.3 : 1,
+                                            cursor: index === 0 ? 'default' : 'pointer'
+                                        }}
+                                    >
+                                        <FaArrowUp size={10} />
+                                    </Focusable>
+                                    <Focusable
+                                        onActivate={index === modeOrder.length - 1 ? undefined : () => moveMode(index, 'down')}
+                                        style={{
+                                            padding: '6px',
+                                            borderRadius: 4,
+                                            backgroundColor: '#ffffff11',
+                                            opacity: index === modeOrder.length - 1 ? 0.3 : 1,
+                                            cursor: index === modeOrder.length - 1 ? 'default' : 'pointer'
+                                        }}
+                                    >
+                                        <FaArrowDown size={10} />
+                                    </Focusable>
+                                </div>
+                            </Focusable>
+                        </PanelSectionRow>
+                    ))}
+                </div>
             </PanelSection>
         </ScrollableContent>
     );
@@ -555,7 +750,7 @@ const LibraryPage = () => {
     );
 };
 
-const ModeRow = ({ title, description }: { title: string; description: string }) => {
+const ModeRow = ({ title, description }: { title: string; description: ReactNode }) => {
     return (
         <Focusable
             onActivate={() => {}}
@@ -595,7 +790,7 @@ const AboutPage = () => {
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
                         <div style={{ fontSize: 13, marginBottom: 8 }}>
-                            SuggestMe (v1.0.1) is a smart game recommender for your Steam library.
+                            SuggestMe (v1.1.0) is a smart game recommender for your Steam library.
                         </div>
                         <div style={{ fontSize: 12, color: '#888' }}>
                             By Guilherme Lemos
@@ -615,11 +810,23 @@ const AboutPage = () => {
                 />
                 <ModeRow 
                     title="Intelligent" 
-                    description="Analyzes your recent play sessions and most-played games to build a preference profile based on genres, tags, and play patterns. Suggests similar games you haven't explored yet."
+                    description={
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div>Analyzes your recent play sessions and most-played games to build a preference profile based on genres, tags, and play patterns. Suggests similar games you haven't explored yet.</div>
+                            <div><strong>How it works:</strong> Scores games based on overlap with your taste profile. Recency and total playtime weight the profile.</div>
+                            <div><strong>Tuning Tip:</strong> Increase 'Recency Decay' if you want your long-term history to matter more. Increase 'Unplayed Bonus' to prioritize backlog gems similar to your favorites.</div>
+                        </div>
+                    }
                 />
                 <ModeRow 
                     title="Fresh Air" 
-                    description="The opposite of Intelligent — identifies your comfort zone and deliberately suggests games outside it. Finds titles with genres and tags you rarely play to broaden your horizons."
+                    description={
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div>The opposite of Intelligent — identifies your comfort zone and deliberately suggests games outside it. Finds titles with genres and tags you rarely play to broaden your horizons.</div>
+                            <div><strong>How it works:</strong> Penalizes games that match your usual genres/tags. Boosts games with 'Novel' genres you've never touched.</div>
+                            <div><strong>Tuning Tip:</strong> Increase 'Genre/Tag Penalty' to strictly avoid your usual types. Increase 'Novel Genre Bonus' to aggressively find completely new experiences.</div>
+                        </div>
+                    }
                 />
             </PanelSection>
 
@@ -781,6 +988,296 @@ const FactoryResetButton = () => {
     );
 };
 
+const ModeTuningPage = () => {
+    const [intelligentTuning, setIntelligentTuning] = useState<IntelligentTuning>(DEFAULT_INTELLIGENT_TUNING);
+    const [freshAirTuning, setFreshAirTuning] = useState<FreshAirTuning>(DEFAULT_FRESH_AIR_TUNING);
+
+    useEffect(() => {
+        const loadTuning = async () => {
+            try {
+                const result = await call<[], ModeTuning>("get_mode_tuning");
+                if (result) {
+                    setIntelligentTuning(result.intelligent);
+                    setFreshAirTuning(result.fresh_air);
+                }
+            } catch (e) {
+                console.error("[SuggestMe] Failed to load mode tuning:", e);
+            }
+        };
+        loadTuning();
+    }, []);
+
+    const saveIntelligent = useCallback(async (tuning: IntelligentTuning) => {
+        try {
+            await call<[string, IntelligentTuning], { success: boolean }>("save_mode_tuning", "intelligent", tuning);
+        } catch (e) {
+            console.error("[SuggestMe] Failed to save intelligent tuning:", e);
+        } 
+    }, []);
+
+    const saveFreshAir = useCallback(async (tuning: FreshAirTuning) => {
+        try {
+            await call<[string, FreshAirTuning], { success: boolean }>("save_mode_tuning", "fresh_air", tuning);
+        } catch (e) {
+            console.error("[SuggestMe] Failed to save fresh air tuning:", e);
+        }
+    }, []);
+
+    const handleResetIntelligent = async () => {
+        try {
+            const result = await call<[string], { success: boolean; tuning: IntelligentTuning }>("reset_mode_tuning", "intelligent");
+            if (result.success && result.tuning) {
+                setIntelligentTuning(result.tuning);
+                toaster.toast({ title: "Reset", body: "Intelligent mode reset to defaults", duration: 2000 });
+            }
+        } catch (e) {
+            console.error("[SuggestMe] Failed to reset intelligent tuning:", e);
+        }
+    };
+
+    const handleResetFreshAir = async () => {
+        try {
+            const result = await call<[string], { success: boolean; tuning: FreshAirTuning }>("reset_mode_tuning", "fresh_air");
+            if (result.success && result.tuning) {
+                setFreshAirTuning(result.tuning);
+                toaster.toast({ title: "Reset", body: "Fresh Air mode reset to defaults", duration: 2000 });
+            }
+        } catch (e) {
+            console.error("[SuggestMe] Failed to reset fresh air tuning:", e);
+        }
+    };
+
+    const updateIntelligent = (key: keyof IntelligentTuning, value: number) => {
+        const updated = { ...intelligentTuning, [key]: value };
+        setIntelligentTuning(updated);
+        saveIntelligent(updated);
+    };
+
+    const updateFreshAir = (key: keyof FreshAirTuning, value: number) => {
+        const updated = { ...freshAirTuning, [key]: value };
+        setFreshAirTuning(updated);
+        saveFreshAir(updated);
+    };
+
+
+    return (
+        <ScrollableContent>
+            <PanelSection title="Intelligent Mode">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                        Recommends games similar to your recent gaming habits.
+                    </div>
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Recent Games Count"
+                        description="Number of recently played games to analyze"
+                        value={intelligentTuning.recent_games_count}
+                        min={5}
+                        max={50}
+                        step={5}
+                        onChange={(v) => updateIntelligent("recent_games_count", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Most Played Count"
+                        description="Number of most-played games to analyze"
+                        value={intelligentTuning.most_played_count}
+                        min={10}
+                        max={100}
+                        step={5}
+                        onChange={(v) => updateIntelligent("most_played_count", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Recency Decay (days)"
+                        description="Days until recency weight reaches minimum"
+                        value={intelligentTuning.recency_decay_days}
+                        min={30}
+                        max={365}
+                        step={15}
+                        onChange={(v) => updateIntelligent("recency_decay_days", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Genre Weight"
+                        description="How much genres influence the score"
+                        value={intelligentTuning.genre_score_weight}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        onChange={(v) => updateIntelligent("genre_score_weight", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Tag Weight"
+                        description="How much Steam features influence the score"
+                        value={intelligentTuning.tag_score_weight}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        onChange={(v) => updateIntelligent("tag_score_weight", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Community Tag Weight"
+                        description="How much community tags influence the score"
+                        value={intelligentTuning.community_tag_score_weight}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        onChange={(v) => updateIntelligent("community_tag_score_weight", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Unplayed Bonus"
+                        description="Extra score for games you haven't played"
+                        value={intelligentTuning.unplayed_bonus}
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        onChange={(v) => updateIntelligent("unplayed_bonus", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Top Candidates %"
+                        description="Percentage of top-scored games to pick from"
+                        value={intelligentTuning.top_candidate_percentile}
+                        min={5}
+                        max={50}
+                        step={5}
+                        onChange={(v) => updateIntelligent("top_candidate_percentile", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <ButtonItem layout="below" onClick={handleResetIntelligent}>
+                        <FaUndo style={{ marginRight: 8 }} />
+                        Reset Intelligent to Defaults
+                    </ButtonItem>
+                </PanelSectionRow>
+            </PanelSection>
+
+            <PanelSection title="Fresh Air Mode">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                        Recommends something different from what you usually play.
+                    </div>
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Genre Penalty"
+                        description="How much familiar genres reduce the score"
+                        value={freshAirTuning.genre_penalty_multiplier}
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        onChange={(v) => updateFreshAir("genre_penalty_multiplier", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Tag Penalty"
+                        description="How much familiar tags reduce the score"
+                        value={freshAirTuning.tag_penalty_multiplier}
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        onChange={(v) => updateFreshAir("tag_penalty_multiplier", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Community Tag Penalty"
+                        description="How much familiar community tags reduce the score"
+                        value={freshAirTuning.community_tag_penalty_multiplier}
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        onChange={(v) => updateFreshAir("community_tag_penalty_multiplier", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Unplayed Bonus"
+                        description="Extra score for games you haven't played"
+                        value={freshAirTuning.unplayed_bonus}
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        onChange={(v) => updateFreshAir("unplayed_bonus", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Novel Genre Bonus"
+                        description="Extra score per genre you've never played"
+                        value={freshAirTuning.novel_genre_bonus}
+                        min={0}
+                        max={0.5}
+                        step={0.05}
+                        onChange={(v) => updateFreshAir("novel_genre_bonus", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Top Candidates %"
+                        description="Percentage of top-scored games to pick from"
+                        value={freshAirTuning.top_candidate_percentile}
+                        min={5}
+                        max={50}
+                        step={5}
+                        onChange={(v) => updateFreshAir("top_candidate_percentile", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <ButtonItem layout="below" onClick={handleResetFreshAir}>
+                        <FaUndo style={{ marginRight: 8 }} />
+                        Reset Fresh Air to Defaults
+                    </ButtonItem>
+                </PanelSectionRow>
+            </PanelSection>
+
+        </ScrollableContent>
+    );
+};
+
 export const SettingsPage = () => {
     const pages = [
         {
@@ -789,13 +1286,23 @@ export const SettingsPage = () => {
             content: <CredentialsPage />
         },
         {
+            title: "General",
+            icon: <FaWrench size={14} />,
+            content: <GeneralSettingsPage />
+        },
+        {
             title: "Library",
             icon: <FaDatabase size={14} />,
             content: <LibraryPage />
         },
         {
+            title: "Mode Tuning",
+            icon: <FaSlidersH size={14} />,
+            content: <ModeTuningPage />
+        },
+        {
             title: "Maintenance",
-            icon: <FaWrench size={14} />,
+            icon: <FaTrash size={14} />,
             content: <MaintenancePage />
         },
         {
