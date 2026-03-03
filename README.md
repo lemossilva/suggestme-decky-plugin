@@ -126,13 +126,61 @@ pnpm run watch
 3. Configure network target: `DECK_IP:8081`
 4. Select "SharedJSContext" to debug
 
-## Privacy
+## Privacy & Data Usage
 
-This plugin is **privacy-first** and prioritizes keeping your data safe:
+<details>
+<summary>This plugin is <b>privacy-first</b> and prioritizes keeping your data safe. Click to read how your data is handled.</summary>
+
 - All data stays locally on your device
 - No telemetry or external data sharing
-- Steam API key is stored locally only
 - Internet connection is only needed for the library sync and metadata fetching
+
+### How Your Credentials Are Used
+
+SuggestMe requires a **Steam Web API Key** and your **Steam ID 64** to function. Here's exactly how they are used:
+
+| Credential | Purpose | Where It's Used |
+|------------|---------|-----------------|
+| **Steam API Key** | Fetches your owned games list from Steam | [`main.py` → `_fetch_owned_games()`](main.py) |
+| **Steam ID 64** | Identifies your Steam account for the API call | [`main.py` → `_fetch_owned_games()`](main.py) |
+| **RAWG API Key** *(optional)* | Fetches additional game metadata (scores) when Steam data is incomplete | [`main.py` → `_fetch_rawg_data()`](main.py) |
+
+### What SuggestMe does NOT do
+
+-  **No external servers** — Your credentials are never sent to any server other than the official Steam API (`api.steampowered.com`) and optionally RAWG (`api.rawg.io`).
+-  **No telemetry** — The plugin does not collect or transmit any usage data.
+-  **No cloud storage** — All settings, history, and cached data are stored locally in `~/.config/decky/settings/SuggestMe/`.
+
+### Where Credentials Are Stored
+
+Your API keys and Steam ID are saved locally in a JSON file on your Steam Deck:
+
+```
+~/.config/decky/settings/SuggestMe/settings.json
+```
+
+This file is protected with `chmod 600` (owner read/write only). You can verify this in [`main.py` → `_save_settings()`](main.py):
+
+```python
+os.chmod(path, 0o600)
+```
+
+### Verify It Yourself
+
+The entire plugin is open source. You can audit the code to confirm:
+
+1. **API calls are only to official endpoints**:
+   - Steam: `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/`
+   - Steam Store: `https://store.steampowered.com/api/appdetails`
+   - RAWG (optional): `https://api.rawg.io/api/games`
+
+2. **No outbound requests to unknown servers** — Search the codebase for `aiohttp` or `fetch` calls; they only target the APIs listed above.
+
+3. **Settings file permissions** — The settings file is chmod'd to 600, ensuring only your user can read it.
+
+If you have any concerns, please [open an issue](https://github.com/lemossilva/suggestme-decky-plugin/issues) and I'll address them transparently.
+
+</details>
 
 ## License
 
