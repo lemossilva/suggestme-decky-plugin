@@ -88,6 +88,8 @@ class SuggestionHistoryEntry:
     mode: str
     is_non_steam: bool = False
     matched_appid: Optional[int] = None
+    filters: Optional[dict] = None
+    preset_name: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -101,6 +103,8 @@ class SuggestionHistoryEntry:
             mode=data.get("mode", "luck"),
             is_non_steam=data.get("is_non_steam", False),
             matched_appid=data.get("matched_appid"),
+            filters=data.get("filters"),
+            preset_name=data.get("preset_name"),
         )
 
 
@@ -414,7 +418,7 @@ class Plugin:
             decky.logger.error(f"Failed to save history: {e}")
             return False
 
-    def _add_to_history(self, game: Game, mode: str):
+    def _add_to_history(self, game: Game, mode: str, filters: dict = None, preset_name: str = None):
         self.history = [h for h in self.history if not (h.appid == game.appid and h.mode == mode)]
         entry = SuggestionHistoryEntry(
             timestamp=int(time.time()),
@@ -423,6 +427,8 @@ class Plugin:
             mode=mode,
             is_non_steam=game.is_non_steam,
             matched_appid=game.matched_appid,
+            filters=filters,
+            preset_name=preset_name,
         )
         self.history.insert(0, entry)
         limit = self.settings.get("history_limit", 50)
@@ -502,7 +508,8 @@ class Plugin:
             "mode_order": self.settings.get("mode_order", ["luck", "guided", "intelligent", "fresh_air"]),
             "default_mode": self.settings.get("default_mode", "luck"),
             "default_filters": self.settings.get("default_filters", DEFAULT_SETTINGS["default_filters"]),
-            "hide_credentials": self.settings.get("hide_credentials", True)
+            "hide_credentials": self.settings.get("hide_credentials", True),
+            "rawg_api_key": self.settings.get("rawg_api_key", ""),
         }
 
     async def save_steam_credentials(self, api_key: str, steam_id: str) -> dict:
@@ -513,6 +520,20 @@ class Plugin:
 
     async def save_hide_credentials(self, hide: bool) -> dict:
         self.settings["hide_credentials"] = hide
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_rawg_api_key(self, api_key: str) -> dict:
+        self.settings["rawg_api_key"] = api_key.strip()
+        success = self._save_settings()
+        return {"success": success}
+
+    async def get_rawg_api_key(self) -> dict:
+        key = self.settings.get("rawg_api_key", "")
+        return {"rawg_api_key": key}
+
+    async def save_date_format(self, format: str) -> dict:
+        self.settings["date_format"] = format
         success = self._save_settings()
         return {"success": success}
 
@@ -732,6 +753,39 @@ class Plugin:
             "sync_progress": progress_info,
         }
 
+    async def get_review_coverage_stats(self) -> dict:
+        """Diagnostic endpoint to quantify Metacritic and Steam review coverage."""
+        total = len(self.library_cache)
+        if total == 0:
+            return {"total": 0, "message": "Library is empty"}
+        
+        with_metacritic = sum(1 for g in self.library_cache if g.metacritic_score > 0)
+        with_steam_review = sum(1 for g in self.library_cache if g.steam_review_score > 0)
+        with_either = sum(1 for g in self.library_cache if g.metacritic_score > 0 or g.steam_review_score > 0)
+        with_both = sum(1 for g in self.library_cache if g.metacritic_score > 0 and g.steam_review_score > 0)
+        
+        games_with_metacritic = [
+            {"name": g.name, "score": g.metacritic_score, "url": g.metacritic_url}
+            for g in self.library_cache if g.metacritic_score > 0
+        ][:20]
+        
+        games_without_metacritic_sample = [
+            {"name": g.name, "appid": g.appid}
+            for g in self.library_cache if g.metacritic_score == 0 and g.steam_review_score > 0
+        ][:10]
+        
+        return {
+            "total_games": total,
+            "with_metacritic": with_metacritic,
+            "with_steam_review": with_steam_review,
+            "with_either_review": with_either,
+            "with_both_reviews": with_both,
+            "metacritic_coverage_percent": round(with_metacritic / total * 100, 1),
+            "steam_review_coverage_percent": round(with_steam_review / total * 100, 1),
+            "sample_games_with_metacritic": games_with_metacritic,
+            "sample_games_without_metacritic": games_without_metacritic_sample,
+        }
+
     async def _fetch_owned_games(self, api_key: str, steam_id: str) -> list[dict]:
         api_key = api_key.strip()
         steam_id = steam_id.strip()
@@ -772,6 +826,72 @@ class Plugin:
                 if app_data.get("success"):
                     return app_data.get("data", {})
                 return {}
+
+    async def _fetch_rawg_metacritic(self, appid: int, game_name: str) -> dict:
+        """Fetch Metacritic score from RAWG API using Steam appid as primary lookup."""
+        rawg_key = self.settings.get("rawg_api_key", "")
+        if not rawg_key:
+            return {}
+        
+        ssl_ctx = _create_ssl_context()
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        
+        try:
+            async with aiohttp.ClientSession(connector=connector) as session:
+                # RAWG allows searching by Steam store ID directly
+                url = f"https://api.rawg.io/api/games"
+                params = {
+                    "key": rawg_key,
+                    "stores": "1",  # Steam store
+                    "search": game_name,
+                    "page_size": 5
+                }
+                
+                async with session.get(url, params=params) as response:
+                    if response.status != 200:
+                        return {}
+                    data = await response.json()
+                    results = data.get("results", [])
+                    
+                    # Find game with matching Steam appid in stores
+                    for game in results:
+                        game_id = game.get("id")
+                        if not game_id:
+                            continue
+                        
+                        # Fetch game details to check Steam store link
+                        detail_url = f"https://api.rawg.io/api/games/{game_id}"
+                        detail_params = {"key": rawg_key}
+                        
+                        async with session.get(detail_url, params=detail_params) as detail_resp:
+                            if detail_resp.status != 200:
+                                continue
+                            detail_data = await detail_resp.json()
+                            
+                            # Check if this game has matching Steam appid
+                            stores = detail_data.get("stores", [])
+                            for store in stores:
+                                store_info = store.get("store", {})
+                                if store_info.get("slug") == "steam":
+                                    store_url = store.get("url", "")
+                                    if f"/app/{appid}" in store_url or f"/{appid}" in store_url:
+                                        metacritic = detail_data.get("metacritic")
+                                        if metacritic:
+                                            return {
+                                                "score": metacritic,
+                                                "url": detail_data.get("metacritic_url", "")
+                                            }
+                    
+                    # Fallback: use first result with metacritic if name matches closely
+                    if results and self._calculate_name_similarity(game_name, results[0].get("name", "")) > 0.8:
+                        metacritic = results[0].get("metacritic")
+                        if metacritic:
+                            return {"score": metacritic, "url": ""}
+                    
+                    return {}
+        except Exception as e:
+            decky.logger.debug(f"RAWG API error for {game_name}: {e}")
+            return {}
 
     async def _fetch_steam_review_summary(self, appid: int) -> dict:
         url = f"https://store.steampowered.com/appreviews/{appid}"
@@ -1060,6 +1180,8 @@ class Plugin:
             pass
 
     async def _fetch_game_metadata_batch(self, games: list[Game], batch_size: int = 5, start_from: int = 0) -> None:
+        use_rawg = bool(self.settings.get("rawg_api_key", ""))
+        
         async def fetch_single(game: Game):
             try:
                 fetch_appid = game.matched_appid if game.is_non_steam and game.matched_appid else game.appid
@@ -1080,6 +1202,14 @@ class Plugin:
                     if metacritic:
                         game.metacritic_score = metacritic.get("score", 0) or 0
                         game.metacritic_url = metacritic.get("url", "") or ""
+                
+                # Fallback to RAWG API if Steam doesn't have Metacritic data
+                if game.metacritic_score == 0 and use_rawg:
+                    rawg_data = await self._fetch_rawg_metacritic(fetch_appid, game.name)
+                    if rawg_data:
+                        game.metacritic_score = rawg_data.get("score", 0) or 0
+                        game.metacritic_url = rawg_data.get("url", "") or ""
+                
                 if isinstance(review_summary, dict) and review_summary:
                     game.steam_review_score = review_summary.get("review_score", 0) or 0
                     game.steam_review_description = review_summary.get("review_score_desc", "") or ""
@@ -1404,9 +1534,6 @@ class Plugin:
         if game.steam_review_score > 0:
             normalized_steam = game.steam_review_score / 9.0
             score += normalized_steam * tuning.review_score_weight
-        if game.metacritic_score > 0:
-            normalized_meta = game.metacritic_score / 100.0
-            score += normalized_meta * tuning.review_score_weight
 
         return score
 
@@ -1437,9 +1564,6 @@ class Plugin:
         if game.steam_review_score > 0:
             normalized_steam = game.steam_review_score / 9.0
             score += normalized_steam * tuning.review_score_weight
-        if game.metacritic_score > 0:
-            normalized_meta = game.metacritic_score / 100.0
-            score += normalized_meta * tuning.review_score_weight
 
         return max(0, score)
 
@@ -1461,7 +1585,7 @@ class Plugin:
         candidates, excluded_count = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
         return {"count": len(candidates), "excluded_count": excluded_count}
 
-    async def get_suggestion(self, mode: str, filters: dict, installed_appids: list[int] = None) -> dict:
+    async def get_suggestion(self, mode: str, filters: dict, installed_appids: list[int] = None, preset_name: str = None) -> dict:
         if not self.library_cache:
             return {
                 "game": None,
@@ -1548,7 +1672,7 @@ class Plugin:
             selected_game = random.choice(fresh_candidates)
 
         if selected_game:
-            self._add_to_history(selected_game, mode)
+            self._add_to_history(selected_game, mode, filters, preset_name)
 
         return {
             "game": selected_game.to_dict() if selected_game else None,

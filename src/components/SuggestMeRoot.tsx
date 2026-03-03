@@ -58,6 +58,7 @@ import {
   HistoryEntry,
   NonSteamGamesInfo,
   SuggestionResult,
+  filtersEqual,
 } from "../types";
 
 type TabId = SuggestMode;
@@ -127,13 +128,13 @@ export function SuggestMeRoot() {
     useSuggestion();
   const { count: playNextCount, addGame: addToPlayNext, removeGame: removeFromPlayNext, isInList: isInPlayNext } = usePlayNext();
   const { excludeGame, count: excludedCount } = useExcludedGames();
-  const { presets, activeIndex, getActivePreset, setActive } = useFilterPresets();
+  const { presets, activeIndex, getActivePreset, setActive, savePreset } = useFilterPresets();
 
   const contentRef = useRef<HTMLDivElement>(null);
   const activePreset = getActivePreset();
   // Derive tabs from config order, fallback to default if missing
-  const modeOrder = config.mode_order && config.mode_order.length > 0 
-    ? config.mode_order 
+  const modeOrder = config.mode_order && config.mode_order.length > 0
+    ? config.mode_order
     : (['luck', 'guided', 'intelligent', 'fresh_air'] as SuggestMode[]);
 
   const [selectedTab, setSelectedTab] = useState<TabId | null>(null);
@@ -159,7 +160,9 @@ export function SuggestMeRoot() {
   });
 
   const filtersActive = hasActiveFilters(filters);
-  const filterSummary = activePreset ? activePreset.label : getFilterSummary(filters);
+  const presetMatchesFilters = activePreset ? filtersEqual(filters, activePreset.filters) : false;
+  const presetWasModified = activePreset !== null && !presetMatchesFilters;
+  const filterSummary = (activePreset && presetMatchesFilters) ? activePreset.label : getFilterSummary(filters);
   const currentModeSuggestion = suggestionsPerMode[activeTab];
   const steamGamesCount = status.steam_games_count || 0;
 
@@ -286,14 +289,16 @@ export function SuggestMeRoot() {
     });
   };
 
-  const handleClearFilters = () => {
+  const handleClearFilters = async () => {
     const resetFilters = { ...DEFAULT_FILTERS };
     setFilters(resetFilters);
-    setDefaultFilters(resetFilters);
+    await setDefaultFilters(resetFilters);
+    await setActive(null);
   };
 
   const handleSuggest = async () => {
-    const result = await requestSuggestion(activeTab, filters);
+    const currentPresetName = (activePreset && presetMatchesFilters) ? activePreset.label : undefined;
+    const result = await requestSuggestion(activeTab, filters, currentPresetName);
     if (result) {
       setSuggestionsPerMode(prev => ({ ...prev, [activeTab]: result }));
     }
@@ -309,7 +314,8 @@ export function SuggestMeRoot() {
   };
 
   const handleReroll = async () => {
-    const result = await requestSuggestion(activeTab, filters);
+    const currentPresetName = (activePreset && presetMatchesFilters) ? activePreset.label : undefined;
+    const result = await requestSuggestion(activeTab, filters, currentPresetName);
     if (result) {
       setSuggestionsPerMode(prev => ({ ...prev, [activeTab]: result }));
     }
@@ -350,7 +356,7 @@ export function SuggestMeRoot() {
       setTimeout(() => setConfirmingExclude(false), 5000);
       return;
     }
-    
+
     if (currentModeSuggestion?.game) {
       await excludeGame(currentModeSuggestion.game);
       setConfirmingExclude(false);
@@ -542,6 +548,12 @@ export function SuggestMeRoot() {
         </Focusable>
       </div>
 
+      {/* Divider */}
+      <div style={{
+        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        margin: '0 16px'
+      }} />
+
       {/* Credentials warning */}
       {!hasCredentials && (
         <PanelSection>
@@ -599,94 +611,10 @@ export function SuggestMeRoot() {
       {/* Main content when ready */}
       {hasCredentials && status.total_games > 0 && (
         <>
-          {/* Mode Tabs */}
-          <div style={{ marginBottom: -16 }}>
-            <PanelSection>
-              <PanelSectionRow>
-                <Focusable
-                  flow-children="row"
-                  style={{
-                    display: 'flex',
-                    gap: 4,
-                    width: '100%',
-                    padding: 4,
-                    marginTop: 8,
-                    backgroundColor: '#ffffff11',
-                    borderRadius: 12
-                  }}
-                >
-                  {modeOrder.map(mode => (
-                    <TabButton
-                      key={mode}
-                      label={TAB_DEFINITIONS[mode].label}
-                      icon={TAB_DEFINITIONS[mode].icon}
-                      active={activeTab === mode}
-                      onClick={() => setSelectedTab(mode)}
-                    />
-                  ))}
-                </Focusable>
-              </PanelSectionRow>
-              <PanelSectionRow>
-                <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '8px 0' }}>
-                  {MODE_DESCRIPTIONS[activeTab]}
-                </div>
-              </PanelSectionRow>
-              {(activeTab === 'intelligent' || activeTab === 'fresh_air') && (
-                <PanelSectionRow>
-                  <div style={{ fontSize: 10, color: '#666', textAlign: 'center', fontStyle: 'italic' }}>
-                    Tune this algorithm in Settings &gt; Mode Tuning
-                  </div>
-                </PanelSectionRow>
-              )}
-            </PanelSection>
-          </div>
-
-          {/* Divider */}
-          <div style={{
-            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-            margin: '0 16px'
-          }} />
-
-          {/* Quick Preset Buttons */}
-          {presets.some(p => p !== null) && (
-            <div style={{ padding: '0 16px', marginTop: 8 }}>
-              <Focusable
-                flow-children="row"
-                style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
-              >
-                {presets.map((preset, index) => preset && (
-                  <Focusable
-                    key={index}
-                    onActivate={async () => {
-                      setFilters(preset.filters);
-                      await setActive(index);
-                      await setDefaultFilters(preset.filters);
-                    }}
-                    style={{
-                      padding: '4px 10px',
-                      backgroundColor: activeIndex === index ? '#4488aa' : '#ffffff11',
-                      borderRadius: 12,
-                      cursor: 'pointer',
-                      border: '2px solid transparent',
-                      fontSize: 11,
-                      color: activeIndex === index ? '#fff' : '#aaa',
-                      maxWidth: 80,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}
-                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                  >
-                    {preset.label}
-                  </Focusable>
-                ))}
-              </Focusable>
-            </div>
-          )}
 
           {/* Filters Bar */}
-          <div style={{ padding: '0 16px', marginTop: 8, marginBottom: 8 }}>  
+          <div style={{ padding: '0 16px', marginTop: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 6, fontWeight: 500 }}>Filters</div>
             <Focusable
               flow-children="row"
               style={{
@@ -755,6 +683,126 @@ export function SuggestMeRoot() {
                 </Focusable>
               )}
             </Focusable>
+          </div>
+
+          {/* Quick Preset Buttons */}
+          {presets.some(p => p !== null) && (
+            <div style={{ padding: '0 16px', marginBottom: 8 }}>
+              <Focusable
+                flow-children="row"
+                style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}
+              >
+                {presets.map((preset, index) => {
+                  if (!preset) return null;
+                  const isActiveAndMatches = activeIndex === index && filtersEqual(filters, preset.filters);
+                  const isActiveButModified = activeIndex === index && !filtersEqual(filters, preset.filters);
+                  return (
+                    <Focusable
+                      key={index}
+                      onActivate={async () => {
+                        setFilters(preset.filters);
+                        await setActive(index);
+                        await setDefaultFilters(preset.filters);
+                      }}
+                      style={{
+                        padding: '4px 10px',
+                        backgroundColor: isActiveAndMatches ? '#4488aa' : (isActiveButModified ? '#aa884433' : '#ffffff11'),
+                        borderRadius: 12,
+                        cursor: 'pointer',
+                        border: '2px solid transparent',
+                        fontSize: 11,
+                        color: isActiveAndMatches ? '#fff' : (isActiveButModified ? '#aa8844' : '#aaa'),
+                        maxWidth: 80,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                      onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                      onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                    >
+                      {preset.label}{isActiveButModified ? '*' : ''}
+                    </Focusable>
+                  );
+                })}
+                {presetWasModified && activeIndex !== null && !filtersEqual(filters, DEFAULT_FILTERS) && (
+                  <Focusable
+                    onActivate={async () => {
+                      const preset = presets[activeIndex];
+                      if (preset) {
+                        await savePreset(activeIndex, preset.label, filters);
+                        await setDefaultFilters(filters);
+                      }
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      backgroundColor: '#aa884433',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      border: '2px solid transparent',
+                      fontSize: 10,
+                      color: '#aa8844',
+                      whiteSpace: 'nowrap',
+                      fontWeight: 500
+                    }}
+                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                  >
+                    Update Preset
+                  </Focusable>
+                )}
+              </Focusable>
+            </div>
+          )}
+
+          {/* Divider */}
+          <div style={{
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            margin: '0 16px'
+          }} />
+
+          {/* Mode Tabs */}
+          <div style={{ marginBottom: -16 }}>
+            <div style={{ padding: '0 16px', marginTop: 12, marginBottom: -4 }}>
+              <div style={{ fontSize: 11, color: '#888', fontWeight: 500 }}>Suggestion Mode</div>
+            </div>
+            <PanelSection>
+              <PanelSectionRow>
+                <Focusable
+                  flow-children="row"
+                  style={{
+                    display: 'flex',
+                    gap: 4,
+                    width: '100%',
+                    padding: 4,
+                    marginTop: 8,
+                    backgroundColor: '#ffffff11',
+                    borderRadius: 12
+                  }}
+                >
+                  {modeOrder.map(mode => (
+                    <TabButton
+                      key={mode}
+                      label={TAB_DEFINITIONS[mode].label}
+                      icon={TAB_DEFINITIONS[mode].icon}
+                      active={activeTab === mode}
+                      onClick={() => setSelectedTab(mode)}
+                    />
+                  ))}
+                </Focusable>
+              </PanelSectionRow>
+              <PanelSectionRow>
+                <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 11, color: '#888', textAlign: 'center' }}>
+                    {MODE_DESCRIPTIONS[activeTab]}
+                  </div>
+                  {(activeTab === 'intelligent' || activeTab === 'fresh_air') && (
+                    <div style={{ fontSize: 10, color: '#666', textAlign: 'center', fontStyle: 'italic' }}>
+                      Tune this algorithm in Settings &gt; Mode Tuning
+                    </div>
+                  )}
+                </div>
+              </PanelSectionRow>
+            </PanelSection>
           </div>
 
           {/* Suggestion Area - Button at top */}

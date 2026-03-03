@@ -62,7 +62,7 @@ export function useSuggestion() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   const requestSuggestion = useCallback(
-    async (mode: SuggestMode, filters: SuggestFilters = DEFAULT_FILTERS): Promise<SuggestionResult | null> => {
+    async (mode: SuggestMode, filters: SuggestFilters = DEFAULT_FILTERS, presetName?: string): Promise<SuggestionResult | null> => {
       try {
         let installedAppIds: number[] = [];
         if (filters.installed_only || filters.not_installed_only) {
@@ -78,11 +78,12 @@ export function useSuggestion() {
           enhancedFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
         }
 
-        const result = await call<[string, any, number[]], SuggestionResult>(
+        const result = await call<[string, any, number[], string?], SuggestionResult>(
           "get_suggestion",
           mode,
           enhancedFilters,
-          installedAppIds
+          installedAppIds,
+          presetName
         );
         setCurrentSuggestion(result);
         return result;

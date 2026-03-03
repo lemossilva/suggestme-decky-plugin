@@ -135,7 +135,7 @@ export const ExcludedGamesPage = () => {
             await call<[number], { success: boolean }>("remove_from_excluded", appid);
             await loadList();
             toaster.toast({
-                title: "Excluded Games",
+                title: "SuggestMe • Excluded Games",
                 body: "Game restored to suggestions",
                 duration: 2000,
             });
@@ -152,7 +152,7 @@ export const ExcludedGamesPage = () => {
             await call<[], { success: boolean }>("clear_excluded_games");
             setGames([]);
             toaster.toast({
-                title: "Excluded Games",
+                title: "SuggestMe • Excluded Games",
                 body: "All games restored to suggestions",
                 duration: 2000,
             });
@@ -171,7 +171,7 @@ export const ExcludedGamesPage = () => {
             
             if (appids.length === 0) {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: "No games to sync",
                     duration: 2000,
                 });
@@ -184,7 +184,7 @@ export const ExcludedGamesPage = () => {
             
             if (!collectionStore || !appStore) {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: "Steam stores not available",
                     duration: 3000,
                 });
@@ -198,7 +198,7 @@ export const ExcludedGamesPage = () => {
 
             if (overviews.length === 0) {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: "No valid apps found",
                     duration: 3000,
                 });
@@ -241,13 +241,13 @@ export const ExcludedGamesPage = () => {
                     msg += `, ${removed} removed`;
                 }
                 toaster.toast({
-                    title: "Excluded Games",
+                    title: "SuggestMe • Excluded Games",
                     body: msg,
                     duration: 3000,
                 });
             } else {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: "Could not create collection",
                     duration: 3000,
                 });
@@ -255,7 +255,7 @@ export const ExcludedGamesPage = () => {
         } catch (e) {
             console.error("[SuggestMe] Failed to sync to collection:", e);
             toaster.toast({
-                title: "Sync Failed",
+                title: "SuggestMe • Sync Failed",
                 body: "An error occurred",
                 duration: 3000,
             });

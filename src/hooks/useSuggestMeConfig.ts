@@ -116,6 +116,20 @@ export function useSuggestMeConfig() {
     }
   }, []);
 
+  const setRawgApiKey = useCallback(async (apiKey: string): Promise<boolean> => {
+    try {
+      const result = await call<[string], { success: boolean }>("save_rawg_api_key", apiKey);
+      if (result.success) {
+        setConfig((prev) => ({ ...prev, rawg_api_key: apiKey }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("[SuggestMe] Failed to save RAWG API key:", error);
+      return false;
+    }
+  }, []);
+
   const setDefaultFilters = useCallback(
     async (filters: SuggestFilters): Promise<boolean> => {
       try {
@@ -136,18 +150,40 @@ export function useSuggestMeConfig() {
     []
   );
 
+  const setDateFormat = useCallback(async (format: 'US' | 'EU' | 'ISO'): Promise<boolean> => {
+    try {
+      const result = await call<[string], { success: boolean }>(
+        "save_date_format",
+        format
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          date_format: format,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("[SuggestMe] Failed to save date format:", error);
+      return false;
+    }
+  }, []);
+
   const hasCredentials = Boolean(config.steam_api_key && config.steam_id);
 
   return {
+    isLoaded,
     config,
     hasCredentials,
-    isLoaded,
     setSteamCredentials,
-    setHideCredentials,
     setHistoryLimit,
     setModeOrder,
     setDefaultMode,
     setDefaultFilters,
+    setHideCredentials,
+    setRawgApiKey,
+    setDateFormat,
     reload: loadConfig,
   };
 }

@@ -147,7 +147,7 @@ export const PlayNextPage = () => {
             await call<[], { success: boolean }>("clear_play_next");
             setGames([]);
             toaster.toast({
-                title: "Play Next",
+                title: "SuggestMe • Play Next",
                 body: "List cleared",
                 duration: 2000,
             });
@@ -166,7 +166,7 @@ export const PlayNextPage = () => {
             
             if (appids.length === 0) {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: "No games to sync",
                     duration: 2000,
                 });
@@ -179,7 +179,7 @@ export const PlayNextPage = () => {
             
             if (!collectionStore || !appStore) {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: "Steam stores not available",
                     duration: 3000,
                 });
@@ -193,7 +193,7 @@ export const PlayNextPage = () => {
 
             if (overviews.length === 0) {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: "No valid apps found",
                     duration: 3000,
                 });
@@ -236,13 +236,13 @@ export const PlayNextPage = () => {
                     msg += `, ${removed} removed`;
                 }
                 toaster.toast({
-                    title: "Play Next",
+                    title: "SuggestMe • Play Next",
                     body: msg,
                     duration: 3000,
                 });
             } else {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: "Could not create collection",
                     duration: 3000,
                 });
@@ -250,7 +250,7 @@ export const PlayNextPage = () => {
         } catch (e) {
             console.error("[SuggestMe] Failed to sync to collection:", e);
             toaster.toast({
-                title: "Sync Failed",
+                title: "SuggestMe • Sync Failed",
                 body: "An error occurred",
                 duration: 3000,
             });

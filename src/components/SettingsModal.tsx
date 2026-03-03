@@ -1,5 +1,6 @@
 import {
     ButtonItem,
+    DropdownItem,
     Focusable,
     Navigation,
     PanelSection,
@@ -410,14 +411,139 @@ const CredentialsPage = () => {
                     </PanelSectionRow>
                 )}
             </PanelSection>
+
+            <RawgApiKeySection />
         </ScrollableContent>
     );
 };
 
+const RawgApiKeySection = () => {
+    const { config, setRawgApiKey } = useSuggestMeConfig();
+    const [rawgKey, setRawgKey] = useState(config.rawg_api_key || "");
+    const [saveMessage, setSaveMessage] = useState<string | null>(null);
+    const [showKey, setShowKey] = useState(false);
+
+    useEffect(() => {
+        setRawgKey(config.rawg_api_key || "");
+    }, [config.rawg_api_key]);
+
+    const handleSave = async () => {
+        const success = await setRawgApiKey(rawgKey.trim());
+        setSaveMessage(success ? "RAWG API key saved!" : "Failed to save");
+        setTimeout(() => setSaveMessage(null), 3000);
+    };
+
+    const keyChanged = rawgKey.trim() !== (config.rawg_api_key || "");
+
+    return (
+        <PanelSection title="RAWG API Key (Optional)">
+            <PanelSectionRow>
+                <Focusable style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '10px 12px',
+                    backgroundColor: '#aa884422',
+                    borderRadius: 8,
+                    marginBottom: 8
+                }}>
+                    <FaInfoCircle size={14} style={{ color: '#aa8844' }} />
+                    <span style={{ fontSize: 11, color: '#aaa' }}>
+                        Improves Metacritic score coverage. Steam only has scores for ~15% of games.
+                    </span>
+                </Focusable>
+            </PanelSectionRow>
+            <PanelSectionRow>
+                <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>
+                    Get a free API key from RAWG.io:
+                </div>
+            </PanelSectionRow>
+            <PanelSectionRow>
+                <CopyableLink 
+                    url="https://rawg.io/apidocs" 
+                    label="rawg.io/apidocs — Get Free API Key" 
+                />
+            </PanelSectionRow>
+            <PanelSectionRow>
+                <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <FaKey size={14} style={{ color: '#888' }} />
+                            <span style={{ fontSize: 13 }}>RAWG API Key</span>
+                        </div>
+                        <Focusable
+                            onActivate={() => setShowKey(!showKey)}
+                            onClick={() => setShowKey(!showKey)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '4px 8px',
+                                backgroundColor: '#ffffff11',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                                border: '2px solid transparent'
+                            }}
+                            onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                            onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                        >
+                            {showKey ? <FaEyeSlash size={12} /> : <FaEye size={12} />}
+                            <span style={{ fontSize: 11 }}>{showKey ? "Hide" : "Show"}</span>
+                        </Focusable>
+                    </div>
+                    {showKey ? (
+                        <TextField
+                            value={rawgKey}
+                            onChange={(e) => setRawgKey(e.target.value)}
+                        />
+                    ) : (
+                        <Focusable 
+                            onActivate={() => setShowKey(true)}
+                            onClick={() => setShowKey(true)}
+                            style={{
+                            padding: '10px 12px',
+                            backgroundColor: '#00000033',
+                            borderRadius: 4,
+                            color: rawgKey ? '#88ff88' : '#888',
+                            fontSize: 13,
+                            fontStyle: 'italic',
+                            cursor: 'pointer'
+                        }}>
+                            {rawgKey ? "RAWG API key configured ✓" : "No RAWG API key set. Click to add."}
+                        </Focusable>
+                    )}
+                </div>
+            </PanelSectionRow>
+            {keyChanged && (
+                <PanelSectionRow>
+                    <ButtonItem
+                        layout="below"
+                        onClick={handleSave}
+                    >
+                        Save RAWG API Key
+                    </ButtonItem>
+                </PanelSectionRow>
+            )}
+            {saveMessage && (
+                <PanelSectionRow>
+                    <div style={{
+                        textAlign: 'center',
+                        color: saveMessage.includes('Failed') ? '#ff6666' : '#88ff88',
+                        fontSize: 12
+                    }}>
+                        {saveMessage}
+                    </div>
+                </PanelSectionRow>
+            )}
+        </PanelSection>
+    );
+};
+
 const GeneralSettingsPage = () => {
-    const { config, setHistoryLimit, setModeOrder } = useSuggestMeConfig();
+    const { config, setHistoryLimit, setModeOrder, setDateFormat } = useSuggestMeConfig();
     const [historyLimit, setHistoryLimitState] = useState(config.history_limit || 50);
     const [modeOrder, setModeOrderState] = useState<SuggestMode[]>(config.mode_order || ["luck", "guided", "intelligent", "fresh_air"]);
+    const [dateFormat, setDateFormatState] = useState<'US' | 'EU' | 'ISO'>(config.date_format || 'US');
 
     // Ensure a valid mode order with all modes present
     useEffect(() => {
@@ -440,6 +566,12 @@ const GeneralSettingsPage = () => {
         setHistoryLimit(value);
     };
 
+    const handleDateFormatChange = (data: any) => {
+        const format = data.data as 'US' | 'EU' | 'ISO';
+        setDateFormatState(format);
+        setDateFormat(format);
+    };
+
     const moveMode = async (index: number, direction: 'up' | 'down') => {
         if ((direction === 'up' && index === 0) || (direction === 'down' && index === modeOrder.length - 1)) {
             return;
@@ -455,6 +587,22 @@ const GeneralSettingsPage = () => {
 
     return (
         <ScrollableContent>
+            <PanelSection title="Display">
+                <PanelSectionRow>
+                    <DropdownItem
+                        menuLabel="Date Format"
+                        label="Date Format"
+                        rgOptions={[
+                            { data: 'US', label: 'US (MM/DD/YYYY)' },
+                            { data: 'EU', label: 'EU (DD/MM/YYYY)' },
+                            { data: 'ISO', label: 'ISO (YYYY-MM-DD)' }
+                        ]}
+                        selectedOption={dateFormat}
+                        onChange={handleDateFormatChange}
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+
             <PanelSection title="History">
                 <PanelSectionRow>
                     <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>
@@ -572,13 +720,13 @@ const LibraryPage = () => {
                 setNonSteamInfo(updatedInfo);
 
                 toaster.toast({
-                    title: "Sync Complete",
+                    title: "SuggestMe • Sync Complete",
                     body: `Steam: ${steamCount} • Non-Steam: ${nonSteamCount} (${nonSteamMatched} matched)`,
                     duration: 4000,
                 });
             } else {
                 toaster.toast({
-                    title: "Sync Failed",
+                    title: "SuggestMe • Sync Failed",
                     body: result?.error || "Unknown error",
                     duration: 5000,
                 });
@@ -586,7 +734,7 @@ const LibraryPage = () => {
         } catch (e) {
             console.error("[SuggestMe] Full sync failed:", e);
             toaster.toast({
-                title: "Sync Failed",
+                title: "SuggestMe • Sync Failed",
                 body: "Failed to sync library",
                 duration: 5000,
             });
@@ -790,7 +938,7 @@ const AboutPage = () => {
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
                         <div style={{ fontSize: 13, marginBottom: 8 }}>
-                            SuggestMe (v1.1.0) is a smart game recommender for your Steam library.
+                            SuggestMe (v1.1.2) is a smart game recommender for your Steam library.
                         </div>
                         <div style={{ fontSize: 12, color: '#888' }}>
                             By Guilherme Lemos
@@ -878,7 +1026,7 @@ const ClearCacheButton = () => {
             const result = await call<[], { success: boolean }>("clear_cache");
             if (result.success) {
                 toaster.toast({
-                    title: "Cache Cleared",
+                    title: "SuggestMe • Cache Cleared",
                     body: "Library, history, and filters have been reset. Credentials preserved.",
                     duration: 5000,
                 });
@@ -886,7 +1034,7 @@ const ClearCacheButton = () => {
                 Navigation.OpenQuickAccessMenu();
             } else {
                 toaster.toast({
-                    title: "Clear Cache Failed",
+                    title: "SuggestMe • Clear Cache Failed",
                     body: "An error occurred.",
                     duration: 3000,
                 });
@@ -941,7 +1089,7 @@ const FactoryResetButton = () => {
             const result = await call<[], { success: boolean }>("factory_reset");
             if (result.success) {
                 toaster.toast({
-                    title: "Factory Reset",
+                    title: "SuggestMe • Factory Reset",
                     body: "All data has been cleared. Please reconfigure your credentials.",
                     duration: 5000,
                 });
@@ -949,7 +1097,7 @@ const FactoryResetButton = () => {
                 Navigation.OpenQuickAccessMenu();
             } else {
                 toaster.toast({
-                    title: "Factory Reset Failed",
+                    title: "SuggestMe • Factory Reset Failed",
                     body: "An error occurred during reset.",
                     duration: 3000,
                 });
@@ -1028,7 +1176,7 @@ const ModeTuningPage = () => {
             const result = await call<[string], { success: boolean; tuning: IntelligentTuning }>("reset_mode_tuning", "intelligent");
             if (result.success && result.tuning) {
                 setIntelligentTuning(result.tuning);
-                toaster.toast({ title: "Reset", body: "Intelligent mode reset to defaults", duration: 2000 });
+                toaster.toast({ title: "SuggestMe • Reset", body: "Intelligent mode reset to defaults", duration: 2000 });
             }
         } catch (e) {
             console.error("[SuggestMe] Failed to reset intelligent tuning:", e);
@@ -1040,7 +1188,7 @@ const ModeTuningPage = () => {
             const result = await call<[string], { success: boolean; tuning: FreshAirTuning }>("reset_mode_tuning", "fresh_air");
             if (result.success && result.tuning) {
                 setFreshAirTuning(result.tuning);
-                toaster.toast({ title: "Reset", body: "Fresh Air mode reset to defaults", duration: 2000 });
+                toaster.toast({ title: "SuggestMe • Reset", body: "Fresh Air mode reset to defaults", duration: 2000 });
             }
         } catch (e) {
             console.error("[SuggestMe] Failed to reset fresh air tuning:", e);

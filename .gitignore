@@ -12,6 +12,7 @@ release/
 !.vscode/tasks.json
 !.vscode/launch.json
 .idea/
+.hintrc
 
 # OS
 .DS_Store

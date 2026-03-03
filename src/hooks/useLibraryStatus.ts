@@ -67,10 +67,18 @@ export function useLibraryStatus() {
       }
     );
 
+    const nonSteamProgressListener = addEventListener<[{ current: number; total: number; name: string }]>(
+      "suggestme_non_steam_progress",
+      () => {
+        // No-op listener to suppress "no listeners" warning
+      }
+    );
+
     return () => {
       cancelled = true;
       removeEventListener("suggestme_library_status_changed", statusListener);
       removeEventListener("suggestme_refresh_progress", progressListener);
+      removeEventListener("suggestme_non_steam_progress", nonSteamProgressListener);
     };
   }, [loadStatus, loadGenresAndTags]);
 
@@ -91,13 +99,13 @@ export function useLibraryStatus() {
         }));
         await loadGenresAndTags();
         toaster.toast({
-          title: "Library Synced",
+          title: "SuggestMe • Library Synced",
           body: `${result.total_games} games loaded successfully`,
           duration: 3000,
         });
       } else {
         toaster.toast({
-          title: "Sync Failed",
+          title: "SuggestMe • Sync Failed",
           body: result.error || "Unknown error",
           duration: 5000,
         });
@@ -106,7 +114,7 @@ export function useLibraryStatus() {
     } catch (error) {
       console.error("[SuggestMe] Failed to refresh library:", error);
       toaster.toast({
-        title: "Sync Failed",
+        title: "SuggestMe • Sync Failed",
         body: "Failed to refresh library",
         duration: 5000,
       });

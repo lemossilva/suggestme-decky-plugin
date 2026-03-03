@@ -6,27 +6,46 @@ import {
 } from "@decky/ui";
 import { routerHook, call } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FaTrash, FaChevronRight, FaHistory } from "react-icons/fa";
-import { HistoryEntry, SuggestMode, MODE_LABELS } from "../types";
+import { FaTrash, FaChevronRight, FaHistory, FaStore, FaFilter } from "react-icons/fa";
+import { HistoryEntry, SuggestMode, MODE_LABELS, SuggestFilters, filtersEqual } from "../types";
+import { getFilterSummary, hasActiveFilters } from "./FiltersModal";
 
 export const HISTORY_ROUTE = '/suggestme/history';
 
 const HistoryItem = ({ 
     entry, 
     onRemove,
+    onRestoreFilters,
+    dateFormat = 'US'
 }: { 
     entry: HistoryEntry; 
     onRemove: () => void;
+    onRestoreFilters: () => void;
+    dateFormat?: 'US' | 'EU' | 'ISO';
 }) => {
     const [focused, setFocused] = useState(false);
     const effectiveAppId = entry.is_non_steam && entry.matched_appid ? entry.matched_appid : entry.appid;
+
+    const formatDate = (timestamp: number) => {
+        const date = new Date(timestamp * 1000);
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        
+        switch (dateFormat) {
+            case 'EU': return `${dd}/${mm}/${yyyy}`;
+            case 'ISO': return `${yyyy}-${mm}-${dd}`;
+            case 'US':
+            default: return `${mm}/${dd}/${yyyy}`;
+        }
+    };
 
     return (
         <Focusable
             flow-children="row"
             style={{
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'stretch',
                 gap: 8,
                 marginBottom: 8
             }}
@@ -73,22 +92,80 @@ const HistoryItem = ({
                         )}
                     </div>
                     <div style={{ fontSize: 10, color: '#888' }}>
-                        {new Date(entry.timestamp * 1000).toLocaleDateString()} • {MODE_LABELS[entry.mode as SuggestMode] || entry.mode}
+                        {formatDate(entry.timestamp)} • {MODE_LABELS[entry.mode as SuggestMode] || entry.mode}
                     </div>
+                    {entry.filters && hasActiveFilters(entry.filters as SuggestFilters) && (
+                        <div style={{ fontSize: 9, color: '#666', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <FaFilter size={8} style={{ marginRight: 4, opacity: 0.7 }} />
+                            {entry.preset_name ? entry.preset_name : getFilterSummary(entry.filters as SuggestFilters)}
+                        </div>
+                    )}
                 </div>
                 <FaChevronRight size={10} style={{ color: '#666', flexShrink: 0 }} />
+            </Focusable>
+
+            {entry.filters && hasActiveFilters(entry.filters as SuggestFilters) && (
+                <Focusable
+                    onActivate={onRestoreFilters}
+                    onClick={onRestoreFilters}
+                    style={{
+                        padding: '0 12px',
+                        backgroundColor: '#88aa4422',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        border: '2px solid transparent',
+                        color: '#88aa44',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        alignSelf: 'stretch'
+                    }}
+                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                >
+                    <FaFilter size={12} />
+                </Focusable>
+            )}
+
+            <Focusable
+                onActivate={() => {
+                    Navigation.NavigateToExternalWeb(`https://store.steampowered.com/app/${effectiveAppId}`);
+                }}
+                onClick={() => {
+                    Navigation.NavigateToExternalWeb(`https://store.steampowered.com/app/${effectiveAppId}`);
+                }}
+                style={{
+                    padding: '0 12px',
+                    backgroundColor: '#4488aa22',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    border: '2px solid transparent',
+                    color: '#4488aa',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    alignSelf: 'stretch'
+                }}
+                onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+            >
+                <FaStore size={12} />
             </Focusable>
 
             <Focusable
                 onActivate={onRemove}
                 onClick={onRemove}
                 style={{
-                    padding: '10px',
+                    padding: '0 12px',
                     backgroundColor: '#ff666622',
                     borderRadius: 8,
                     cursor: 'pointer',
                     border: '2px solid transparent',
                     color: '#ff6666',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    alignSelf: 'stretch'
                 }}
                 onFocus={(e: any) => e.target.style.borderColor = 'white'}
                 onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
@@ -102,7 +179,19 @@ const HistoryItem = ({
 export const HistoryPage = () => {
     const [historyItems, setHistoryItems] = useState<HistoryEntry[]>([]);
     const [activeTab, setActiveTab] = useState<SuggestMode | 'all'>('all');
+    const [dateFormat, setDateFormat] = useState<'US' | 'EU' | 'ISO'>('US');
     const scrollRef = useRef<HTMLDivElement>(null);
+
+    const loadConfig = useCallback(async () => {
+        try {
+            const result = await call<[], any>("get_config");
+            if (result && result.date_format) {
+                setDateFormat(result.date_format);
+            }
+        } catch (e) {
+            console.error("[SuggestMe] Failed to load config:", e);
+        }
+    }, []);
 
     const loadList = useCallback(async () => {
         try {
@@ -115,8 +204,9 @@ export const HistoryPage = () => {
     }, []);
 
     useEffect(() => {
+        loadConfig();
         loadList();
-    }, [loadList]);
+    }, [loadConfig, loadList]);
 
     // Parse URL to get initial mode if passed
     useEffect(() => {
@@ -150,6 +240,36 @@ export const HistoryPage = () => {
             await loadList();
         } catch (e) {
             console.error("[SuggestMe] Failed to clear history:", e);
+        }
+    };
+
+    const handleRestoreFilters = async (filters: SuggestFilters | undefined) => {
+        if (!filters) return;
+        try {
+            await call<[SuggestFilters], { success: boolean }>("save_default_filters", filters);
+            
+            // Check if this filter combination matches any existing preset
+            const presetsResult = await call<[], any>("get_filter_presets");
+            if (presetsResult && presetsResult.presets) {
+                let matchingIndex = -1;
+                for (let i = 0; i < presetsResult.presets.length; i++) {
+                    const preset = presetsResult.presets[i];
+                    if (preset && filtersEqual(filters, preset.filters)) {
+                        matchingIndex = i;
+                        break;
+                    }
+                }
+                
+                if (matchingIndex !== -1) {
+                    await call<[number], { success: boolean }>("set_active_preset", matchingIndex);
+                } else {
+                    await call<[null], { success: boolean }>("set_active_preset", null);
+                }
+            }
+
+            Navigation.OpenQuickAccessMenu();
+        } catch (e) {
+            console.error("[SuggestMe] Failed to restore filters:", e);
         }
     };
 
@@ -242,6 +362,8 @@ export const HistoryPage = () => {
                             key={`${item.mode}-${item.appid}-${item.timestamp}`}
                             entry={item}
                             onRemove={() => handleRemove(item.mode, item.appid)}
+                            onRestoreFilters={() => handleRestoreFilters(item.filters as SuggestFilters)}
+                            dateFormat={dateFormat}
                         />
                     ))}
                 </PanelSection>

@@ -7,8 +7,8 @@ export function useExcludedGames() {
 
   const loadList = useCallback(async () => {
     try {
-      const result = await call<[], ExcludedGame[]>("get_excluded_games");
-      if (result) setList(result);
+      const result = await call<[], { games: ExcludedGame[]; count: number }>("get_excluded_games");
+      if (result?.games) setList(result.games);
     } catch (e) {
       console.error("[SuggestMe] Failed to load excluded games:", e);
     }

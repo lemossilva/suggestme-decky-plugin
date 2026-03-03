@@ -150,8 +150,7 @@ const MultiSelectChips = ({
     excluded = [],
     onToggle,
     maxVisible = 30,
-    showSearch = false,
-    searchTitle = "Search"
+    externalSearchQuery = ""
 }: { 
     title: string;
     available: string[]; 
@@ -159,60 +158,33 @@ const MultiSelectChips = ({
     excluded?: string[];
     onToggle: (item: string) => void;
     maxVisible?: number;
-    showSearch?: boolean;
-    searchTitle?: string;
+    externalSearchQuery?: string;
 }) => {
     const [showAll, setShowAll] = useState(false);
-    const [searchQuery, setSearchQuery] = useState("");
     
-    const filteredItems = searchQuery.trim()
+    const filteredItems = externalSearchQuery.trim()
         ? available.filter(item => 
-            item.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            item.toLowerCase().includes(externalSearchQuery.toLowerCase()) ||
             selected.includes(item) ||
             excluded.includes(item)
           )
         : available;
     
-    const displayItems = showAll || searchQuery.trim() ? filteredItems : filteredItems.slice(0, maxVisible);
-    const hasMore = filteredItems.length > maxVisible && !searchQuery.trim();
-
-    const handleOpenSearch = () => {
-        showSearchModal(searchTitle, (query) => {
-            setSearchQuery(query);
-        }, available);
-    };
+    const sortedItems = [...filteredItems].sort((a, b) => {
+        const aSelected = selected.includes(a) || excluded.includes(a);
+        const bSelected = selected.includes(b) || excluded.includes(b);
+        if (aSelected && !bSelected) return -1;
+        if (!aSelected && bSelected) return 1;
+        return 0;
+    });
+    
+    const displayItems = showAll || externalSearchQuery.trim() ? sortedItems : sortedItems.slice(0, maxVisible);
+    const hasMore = sortedItems.length > maxVisible && !externalSearchQuery.trim();
 
     return (
         <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <div style={{ fontSize: 13, color: '#aaa' }}>{title}</div>
-                {showSearch && available.length > 10 && (
-                    <Focusable
-                        onActivate={handleOpenSearch}
-                        style={{
-                            padding: '4px 10px',
-                            backgroundColor: searchQuery ? '#4488aa33' : '#ffffff11',
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            border: '2px solid transparent',
-                            fontSize: 11,
-                            color: searchQuery ? '#4488aa' : '#888',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4
-                        }}
-                        onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                        onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                    >
-                        {searchQuery ? `"${searchQuery}"` : 'Search'}
-                        {searchQuery && (
-                            <span 
-                                onClick={(e) => { e.stopPropagation(); setSearchQuery(""); }}
-                                style={{ marginLeft: 4, cursor: 'pointer' }}
-                            >×</span>
-                        )}
-                    </Focusable>
-                )}
             </div>
             <Focusable
                 style={{
@@ -268,7 +240,7 @@ const MultiSelectChips = ({
                         onFocus={(e: any) => e.target.style.borderColor = 'white'}
                         onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                     >
-                        +{filteredItems.length - maxVisible} more
+                        +{sortedItems.length - maxVisible} more
                     </Focusable>
                 )}
             </Focusable>
@@ -373,6 +345,8 @@ const PlaytimePage = ({ filters, setFilters }: { filters: SuggestFilters; setFil
 );
 
 const GenresPage = ({ filters, setFilters, genres }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void; genres: string[] }) => {
+    const [searchQuery, setSearchQuery] = useState("");
+
     const toggleInclude = (genre: string) => {
         const current = filters.include_genres;
         if (current.includes(genre)) {
@@ -399,6 +373,12 @@ const GenresPage = ({ filters, setFilters, genres }: { filters: SuggestFilters; 
         }
     };
 
+    const handleOpenSearch = () => {
+        showSearchModal("Search Genres", (query) => {
+            setSearchQuery(query);
+        }, genres);
+    };
+
     return (
         <div style={{ padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
             <PanelSection title="Official Steam Genres">
@@ -415,14 +395,43 @@ const GenresPage = ({ filters, setFilters, genres }: { filters: SuggestFilters; 
                     </PanelSectionRow>
                 ) : (
                     <>
+                        {genres.length > 10 && (
+                            <PanelSectionRow>
+                                <Focusable
+                                    onActivate={handleOpenSearch}
+                                    style={{
+                                        padding: '6px 12px',
+                                        backgroundColor: searchQuery ? '#4488aa33' : '#ffffff11',
+                                        borderRadius: 6,
+                                        cursor: 'pointer',
+                                        border: '2px solid transparent',
+                                        fontSize: 11,
+                                        color: searchQuery ? '#4488aa' : '#888',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        marginBottom: 8
+                                    }}
+                                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                >
+                                    {searchQuery ? `Filtering: "${searchQuery}"` : 'Search genres...'}
+                                    {searchQuery && (
+                                        <span 
+                                            onClick={(e) => { e.stopPropagation(); setSearchQuery(""); }}
+                                            style={{ marginLeft: 4, cursor: 'pointer' }}
+                                        >×</span>
+                                    )}
+                                </Focusable>
+                            </PanelSectionRow>
+                        )}
                         <MultiSelectChips
                             title="Include genres (match any)"
                             available={genres}
                             selected={filters.include_genres}
                             excluded={filters.exclude_genres}
                             onToggle={toggleInclude}
-                            showSearch
-                            searchTitle="Search Genres"
+                            externalSearchQuery={searchQuery}
                         />
                         <MultiSelectChips
                             title="Exclude genres"
@@ -430,8 +439,7 @@ const GenresPage = ({ filters, setFilters, genres }: { filters: SuggestFilters; 
                             selected={filters.exclude_genres}
                             excluded={filters.include_genres}
                             onToggle={toggleExclude}
-                            showSearch
-                            searchTitle="Search Genres"
+                            externalSearchQuery={searchQuery}
                         />
                     </>
                 )}
@@ -441,6 +449,8 @@ const GenresPage = ({ filters, setFilters, genres }: { filters: SuggestFilters; 
 };
 
 const TagsPage = ({ filters, setFilters, tags }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void; tags: string[] }) => {
+    const [searchQuery, setSearchQuery] = useState("");
+
     const toggleInclude = (tag: string) => {
         const current = filters.include_tags;
         if (current.includes(tag)) {
@@ -467,6 +477,12 @@ const TagsPage = ({ filters, setFilters, tags }: { filters: SuggestFilters; setF
         }
     };
 
+    const handleOpenSearch = () => {
+        showSearchModal("Search Features", (query) => {
+            setSearchQuery(query);
+        }, tags);
+    };
+
     return (
         <div style={{ padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
             <PanelSection title="Steam Features">
@@ -483,14 +499,43 @@ const TagsPage = ({ filters, setFilters, tags }: { filters: SuggestFilters; setF
                     </PanelSectionRow>
                 ) : (
                     <>
+                        {tags.length > 10 && (
+                            <PanelSectionRow>
+                                <Focusable
+                                    onActivate={handleOpenSearch}
+                                    style={{
+                                        padding: '6px 12px',
+                                        backgroundColor: searchQuery ? '#4488aa33' : '#ffffff11',
+                                        borderRadius: 6,
+                                        cursor: 'pointer',
+                                        border: '2px solid transparent',
+                                        fontSize: 11,
+                                        color: searchQuery ? '#4488aa' : '#888',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        marginBottom: 8
+                                    }}
+                                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                >
+                                    {searchQuery ? `Filtering: "${searchQuery}"` : 'Search features...'}
+                                    {searchQuery && (
+                                        <span 
+                                            onClick={(e) => { e.stopPropagation(); setSearchQuery(""); }}
+                                            style={{ marginLeft: 4, cursor: 'pointer' }}
+                                        >×</span>
+                                    )}
+                                </Focusable>
+                            </PanelSectionRow>
+                        )}
                         <MultiSelectChips
                             title="Include features (match any)"
                             available={tags}
                             selected={filters.include_tags}
                             excluded={filters.exclude_tags}
                             onToggle={toggleInclude}
-                            showSearch
-                            searchTitle="Search Features"
+                            externalSearchQuery={searchQuery}
                         />
                         <MultiSelectChips
                             title="Exclude features"
@@ -498,8 +543,7 @@ const TagsPage = ({ filters, setFilters, tags }: { filters: SuggestFilters; setF
                             selected={filters.exclude_tags}
                             excluded={filters.include_tags}
                             onToggle={toggleExclude}
-                            showSearch
-                            searchTitle="Search Features"
+                            externalSearchQuery={searchQuery}
                         />
                     </>
                 )}
@@ -509,6 +553,7 @@ const TagsPage = ({ filters, setFilters, tags }: { filters: SuggestFilters; setF
 };
 
 const CommunityTagsPage = ({ filters, setFilters, communityTags }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void; communityTags: string[] }) => {
+    const [searchQuery, setSearchQuery] = useState("");
     const includeTags = filters.include_community_tags || [];
     const excludeTags = filters.exclude_community_tags || [];
 
@@ -536,6 +581,12 @@ const CommunityTagsPage = ({ filters, setFilters, communityTags }: { filters: Su
         }
     };
 
+    const handleOpenSearch = () => {
+        showSearchModal("Search Community Tags", (query) => {
+            setSearchQuery(query);
+        }, communityTags);
+    };
+
     return (
         <div style={{ padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
             <PanelSection title="Community Tags">
@@ -552,14 +603,43 @@ const CommunityTagsPage = ({ filters, setFilters, communityTags }: { filters: Su
                     </PanelSectionRow>
                 ) : (
                     <>
+                        {communityTags.length > 10 && (
+                            <PanelSectionRow>
+                                <Focusable
+                                    onActivate={handleOpenSearch}
+                                    style={{
+                                        padding: '6px 12px',
+                                        backgroundColor: searchQuery ? '#4488aa33' : '#ffffff11',
+                                        borderRadius: 6,
+                                        cursor: 'pointer',
+                                        border: '2px solid transparent',
+                                        fontSize: 11,
+                                        color: searchQuery ? '#4488aa' : '#888',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        marginBottom: 8
+                                    }}
+                                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                                >
+                                    {searchQuery ? `Filtering: "${searchQuery}"` : 'Search community tags...'}
+                                    {searchQuery && (
+                                        <span 
+                                            onClick={(e) => { e.stopPropagation(); setSearchQuery(""); }}
+                                            style={{ marginLeft: 4, cursor: 'pointer' }}
+                                        >×</span>
+                                    )}
+                                </Focusable>
+                            </PanelSectionRow>
+                        )}
                         <MultiSelectChips
                             title="Include tags (match any)"
                             available={communityTags}
                             selected={includeTags}
                             excluded={excludeTags}
                             onToggle={toggleInclude}
-                            showSearch
-                            searchTitle="Search Community Tags"
+                            externalSearchQuery={searchQuery}
                         />
                         <MultiSelectChips
                             title="Exclude tags"
@@ -567,8 +647,7 @@ const CommunityTagsPage = ({ filters, setFilters, communityTags }: { filters: Su
                             selected={excludeTags}
                             excluded={includeTags}
                             onToggle={toggleExclude}
-                            showSearch
-                            searchTitle="Search Community Tags"
+                            externalSearchQuery={searchQuery}
                         />
                     </>
                 )}
@@ -1020,7 +1099,6 @@ export const FiltersPage = () => {
         setLocalFilters(newFilters);
         if (!filtersModified) {
             setFiltersModified(true);
-            setActive(null);
         }
     };
 
@@ -1037,6 +1115,38 @@ export const FiltersPage = () => {
         setTimeout(() => setResetFeedback(false), 1500);
     };
 
+    const getSourceCount = () => {
+        let count = 0;
+        if (localFilters.non_steam_only) count++;
+        if (localFilters.exclude_non_steam) count++;
+        if (localFilters.installed_only) count++;
+        if (localFilters.not_installed_only) count++;
+        return count;
+    };
+
+    const getPlaytimeCount = () => {
+        let count = 0;
+        if (!localFilters.include_unplayed) count++;
+        if (localFilters.min_playtime !== undefined) count++;
+        if (localFilters.max_playtime !== undefined) count++;
+        return count;
+    };
+
+    const getGenresCount = () => (localFilters.include_genres?.length || 0) + (localFilters.exclude_genres?.length || 0);
+    const getTagsCount = () => (localFilters.include_tags?.length || 0) + (localFilters.exclude_tags?.length || 0);
+    const getCommunityCount = () => (localFilters.include_community_tags?.length || 0) + (localFilters.exclude_community_tags?.length || 0);
+    const getDeckCount = () => (localFilters.deck_status?.length || 0) + (localFilters.protondb_tier?.length || 0);
+    const getReviewsCount = () => {
+        let count = 0;
+        if (localFilters.min_steam_review_score !== undefined) count++;
+        if (localFilters.min_metacritic_score !== undefined) count++;
+        if (!localFilters.include_games_without_reviews) count++;
+        return count;
+    };
+    const getCollectionsCount = () => (localFilters.include_collections?.length || 0) + (localFilters.exclude_collections?.length || 0);
+
+    const badge = (count: number) => count > 0 ? ` (${count})` : '';
+
     const pages = [
         {
             title: "Presets",
@@ -1044,42 +1154,42 @@ export const FiltersPage = () => {
             content: <PresetsPage filters={localFilters} setFilters={setLocalFilters} onPresetChange={() => setFiltersModified(false)} />
         },
         {
-            title: "Source",
+            title: `Source${badge(getSourceCount())}`,
             icon: <FaExchangeAlt size={14} />,
             content: <GameSourcePage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
-            title: "Playtime",
+            title: `Playtime${badge(getPlaytimeCount())}`,
             icon: <FaClock size={14} />,
             content: <PlaytimePage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
-            title: "Genres",
+            title: `Genres${badge(getGenresCount())}`,
             icon: <FaGamepad size={14} />,
             content: <GenresPage filters={localFilters} setFilters={handleFilterChange} genres={props.availableGenres} />
         },
         {
-            title: "Features",
+            title: `Features${badge(getTagsCount())}`,
             icon: <FaTags size={14} />,
             content: <TagsPage filters={localFilters} setFilters={handleFilterChange} tags={props.availableTags} />
         },
         {
-            title: "Community",
+            title: `Community${badge(getCommunityCount())}`,
             icon: <FaUsers size={14} />,
             content: <CommunityTagsPage filters={localFilters} setFilters={handleFilterChange} communityTags={props.availableCommunityTags} />
         },
         {
-            title: "Deck",
+            title: `Deck${badge(getDeckCount())}`,
             icon: <FaSteam size={14} />,
             content: <DeckCompatPage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
-            title: "Reviews",
+            title: `Reviews${badge(getReviewsCount())}`,
             icon: <FaStar size={14} />,
             content: <ReviewsPage filters={localFilters} setFilters={handleFilterChange} />
         },
         {
-            title: "Collections",
+            title: `Collections${badge(getCollectionsCount())}`,
             icon: <FaFolder size={14} />,
             content: <CollectionsPage filters={localFilters} setFilters={handleFilterChange} collections={props.availableCollections} />
         }

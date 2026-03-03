@@ -278,13 +278,13 @@ export const NonSteamGamesPage = () => {
             await loadInfo();
             if (result && result.count === 0) {
                 toaster.toast({
-                    title: "Non-Steam Games",
+                    title: "SuggestMe • Non-Steam Games",
                     body: "No new games found. Your library is up to date.",
                     duration: 3000,
                 });
             } else if (result && result.count > 0) {
                 toaster.toast({
-                    title: "Non-Steam Games",
+                    title: "SuggestMe • Non-Steam Games",
                     body: `${result.count} new games added`,
                     duration: 3000,
                 });
@@ -328,14 +328,14 @@ export const NonSteamGamesPage = () => {
             );
             if (result.success) {
                 toaster.toast({
-                    title: "Game Updated",
+                    title: "SuggestMe • Game Updated",
                     body: `Successfully matched "${originalName}" to Steam`,
                     duration: 3000,
                 });
                 await loadInfo();
             } else {
                 toaster.toast({
-                    title: "Match Failed",
+                    title: "SuggestMe • Match Failed",
                     body: result.error || "Could not find a match",
                     duration: 3000,
                 });

@@ -62,6 +62,8 @@ export interface SuggestMeConfig {
   default_mode?: SuggestMode;
   default_filters?: SuggestFilters;
   hide_credentials?: boolean;
+  rawg_api_key?: string;
+  date_format?: 'US' | 'EU' | 'ISO';
 }
 
 export interface SuggestionResult {
@@ -88,6 +90,8 @@ export interface HistoryEntry {
   mode: SuggestMode;
   is_non_steam?: boolean;
   matched_appid?: number;
+  filters?: SuggestFilters;
+  preset_name?: string;
 }
 
 export interface RefreshProgress {
@@ -218,3 +222,35 @@ export const DEFAULT_FRESH_AIR_TUNING: FreshAirTuning = {
   top_candidate_percentile: 20,
   review_score_weight: 0.15,
 };
+
+export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {
+  const arraysEqual = (x: string[] | number[] | undefined, y: string[] | number[] | undefined) => {
+    const ax = x || [];
+    const ay = y || [];
+    if (ax.length !== ay.length) return false;
+    return ax.every((v, i) => v === ay[i]);
+  };
+  
+  return (
+    arraysEqual(a.include_genres, b.include_genres) &&
+    arraysEqual(a.exclude_genres, b.exclude_genres) &&
+    arraysEqual(a.include_tags, b.include_tags) &&
+    arraysEqual(a.exclude_tags, b.exclude_tags) &&
+    arraysEqual(a.include_community_tags, b.include_community_tags) &&
+    arraysEqual(a.exclude_community_tags, b.exclude_community_tags) &&
+    arraysEqual(a.deck_status, b.deck_status) &&
+    arraysEqual(a.protondb_tier, b.protondb_tier) &&
+    arraysEqual(a.include_collections, b.include_collections) &&
+    arraysEqual(a.exclude_collections, b.exclude_collections) &&
+    a.min_playtime === b.min_playtime &&
+    a.max_playtime === b.max_playtime &&
+    a.installed_only === b.installed_only &&
+    a.not_installed_only === b.not_installed_only &&
+    a.include_unplayed === b.include_unplayed &&
+    a.non_steam_only === b.non_steam_only &&
+    a.exclude_non_steam === b.exclude_non_steam &&
+    a.min_steam_review_score === b.min_steam_review_score &&
+    a.min_metacritic_score === b.min_metacritic_score &&
+    a.include_games_without_reviews === b.include_games_without_reviews
+  );
+}
