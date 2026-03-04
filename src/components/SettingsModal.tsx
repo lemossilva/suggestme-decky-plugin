@@ -12,12 +12,16 @@ import {
     TextField,
 } from "@decky/ui";
 import { ReactNode, useState, useEffect, useCallback, useRef } from "react";
-import { FaKey, FaSteam, FaSync, FaCopy, FaDatabase, FaInfoCircle, FaWifi, FaLock, FaCheck, FaExclamationTriangle, FaGamepad, FaChevronRight, FaTrash, FaWrench, FaSlidersH, FaUndo, FaArrowUp, FaArrowDown, FaEye, FaEyeSlash } from "react-icons/fa";
+import { FaKey, FaSteam, FaSync, FaCopy, FaDatabase, FaInfoCircle, FaWifi, FaLock, FaCheck, FaExclamationTriangle, FaGamepad, FaChevronRight, FaTrash, FaWrench, FaSlidersH, FaUndo, FaArrowUp, FaArrowDown, FaEye, FaEyeSlash, FaChartBar } from "react-icons/fa";
+import { StatisticsTab } from "./StatisticsTab";
+import { MetadataDrillDown } from "./MetadataDrillDown";
+import { Game } from "../types";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { useLibraryStatus } from "../hooks/useLibraryStatus";
 import { navigateToNonSteamGames } from "./NonSteamGamesModal";
 import { call, toaster } from "@decky/api";
 import { NonSteamGamesInfo, IntelligentTuning, FreshAirTuning, DEFAULT_INTELLIGENT_TUNING, DEFAULT_FRESH_AIR_TUNING, ModeTuning, SuggestMode, MODE_LABELS } from "../types";
+import { logger } from "../utils/logger";
 
 export const SETTINGS_ROUTE = '/suggestme/settings';
 
@@ -94,7 +98,7 @@ const CopyableLink = ({ url, label }: { url: string; label: string }) => {
             setCopied(true);
             setTimeout(() => { if (mountedRef.current) setCopied(false); }, 2000);
         } catch (e) {
-            console.error('Failed to copy:', e);
+            logger.error('Failed to copy:', e);
         }
     };
 
@@ -134,17 +138,28 @@ const CopyableLink = ({ url, label }: { url: string; label: string }) => {
 };
 
 const CredentialsPage = () => {
-    const { config, setSteamCredentials, setHideCredentials } = useSuggestMeConfig();
-    const [apiKey, setApiKey] = useState(config.steam_api_key || "");
-    const [steamId, setSteamId] = useState(config.steam_id || "");
+    const { config, setSteamCredentials, setHideCredentials, getCredentials } = useSuggestMeConfig();
+    const [apiKey, setApiKey] = useState("");
+    const [steamId, setSteamId] = useState("");
+    const [savedApiKey, setSavedApiKey] = useState("");
+    const [savedSteamId, setSavedSteamId] = useState("");
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
     const [detectedId, setDetectedId] = useState<string | null>(null);
     const showCredentials = !(config.hide_credentials ?? true);
 
     useEffect(() => {
-        setApiKey(config.steam_api_key || "");
-        setSteamId(config.steam_id || "");
-    }, [config.steam_api_key, config.steam_id]);
+        let cancelled = false;
+        const loadCredentials = async () => {
+            const creds = await getCredentials();
+            if (cancelled) return;
+            setApiKey(creds.steam_api_key);
+            setSteamId(creds.steam_id);
+            setSavedApiKey(creds.steam_api_key);
+            setSavedSteamId(creds.steam_id);
+        };
+        loadCredentials();
+        return () => { cancelled = true; };
+    }, [getCredentials]);
 
     useEffect(() => {
         const checkDetected = async () => {
@@ -154,7 +169,7 @@ const CredentialsPage = () => {
                     setDetectedId(result.steam_id);
                 }
             } catch (e) {
-                console.debug("[SuggestMe] Failed to get detected Steam ID:", e);
+                logger.debug("[SuggestMe] Failed to get detected Steam ID:", e);
             }
         };
         checkDetected();
@@ -170,8 +185,8 @@ const CredentialsPage = () => {
     };
 
     const credentialsChanged =
-        apiKey.trim() !== (config.steam_api_key || "") ||
-        steamId.trim() !== (config.steam_id || "");
+        apiKey.trim() !== savedApiKey ||
+        steamId.trim() !== savedSteamId;
 
     const canSave = credentialsChanged && (apiKeyValidation.valid || steamIdValidation.isValid);
 
@@ -418,22 +433,34 @@ const CredentialsPage = () => {
 };
 
 const RawgApiKeySection = () => {
-    const { config, setRawgApiKey } = useSuggestMeConfig();
-    const [rawgKey, setRawgKey] = useState(config.rawg_api_key || "");
+    const { setRawgApiKey, getCredentials } = useSuggestMeConfig();
+    const [rawgKey, setRawgKey] = useState("");
+    const [savedRawgKey, setSavedRawgKey] = useState("");
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
     const [showKey, setShowKey] = useState(false);
 
     useEffect(() => {
-        setRawgKey(config.rawg_api_key || "");
-    }, [config.rawg_api_key]);
+        let cancelled = false;
+        const loadRawgKey = async () => {
+            const creds = await getCredentials();
+            if (cancelled) return;
+            setRawgKey(creds.rawg_api_key);
+            setSavedRawgKey(creds.rawg_api_key);
+        };
+        loadRawgKey();
+        return () => { cancelled = true; };
+    }, [getCredentials]);
 
     const handleSave = async () => {
         const success = await setRawgApiKey(rawgKey.trim());
+        if (success) {
+            setSavedRawgKey(rawgKey.trim());
+        }
         setSaveMessage(success ? "RAWG API key saved!" : "Failed to save");
         setTimeout(() => setSaveMessage(null), 3000);
     };
 
-    const keyChanged = rawgKey.trim() !== (config.rawg_api_key || "");
+    const keyChanged = rawgKey.trim() !== savedRawgKey;
 
     return (
         <PanelSection title="RAWG API Key (Optional)">
@@ -544,6 +571,12 @@ const GeneralSettingsPage = () => {
     const [historyLimit, setHistoryLimitState] = useState(config.history_limit || 50);
     const [modeOrder, setModeOrderState] = useState<SuggestMode[]>(config.mode_order || ["luck", "guided", "intelligent", "fresh_air"]);
     const [dateFormat, setDateFormatState] = useState<'US' | 'EU' | 'ISO'>(config.date_format || 'US');
+
+    useEffect(() => {
+        if (config.date_format) {
+            setDateFormatState(config.date_format);
+        }
+    }, [config.date_format]);
 
     // Ensure a valid mode order with all modes present
     useEffect(() => {
@@ -692,7 +725,7 @@ const LibraryPage = () => {
                 const result = await call<[], NonSteamGamesInfo>("get_non_steam_games");
                 setNonSteamInfo(result);
             } catch (e) {
-                console.error("[SuggestMe] Failed to load non-steam info:", e);
+                logger.error("[SuggestMe] Failed to load non-steam info:", e);
             }
         };
         loadNonSteamInfo();
@@ -732,7 +765,7 @@ const LibraryPage = () => {
                 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Full sync failed:", e);
+            logger.error("[SuggestMe] Full sync failed:", e);
             toaster.toast({
                 title: "SuggestMe • Sync Failed",
                 body: "Failed to sync library",
@@ -938,7 +971,7 @@ const AboutPage = () => {
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
                         <div style={{ fontSize: 13, marginBottom: 8 }}>
-                            SuggestMe (v1.1.2) is a smart game recommender for your Steam library.
+                            SuggestMe (v1.2.0) is a smart game recommender for your Steam library.
                         </div>
                         <div style={{ fontSize: 12, color: '#888' }}>
                             By Guilherme Lemos
@@ -1040,7 +1073,7 @@ const ClearCacheButton = () => {
                 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Clear cache failed:", e);
+            logger.error("[SuggestMe] Clear cache failed:", e);
         } finally {
             setClearing(false);
             setConfirming(false);
@@ -1103,7 +1136,7 @@ const FactoryResetButton = () => {
                 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Factory reset failed:", e);
+            logger.error("[SuggestMe] Factory reset failed:", e);
         } finally {
             setResetting(false);
             setConfirming(false);
@@ -1149,7 +1182,7 @@ const ModeTuningPage = () => {
                     setFreshAirTuning(result.fresh_air);
                 }
             } catch (e) {
-                console.error("[SuggestMe] Failed to load mode tuning:", e);
+                logger.error("[SuggestMe] Failed to load mode tuning:", e);
             }
         };
         loadTuning();
@@ -1159,7 +1192,7 @@ const ModeTuningPage = () => {
         try {
             await call<[string, IntelligentTuning], { success: boolean }>("save_mode_tuning", "intelligent", tuning);
         } catch (e) {
-            console.error("[SuggestMe] Failed to save intelligent tuning:", e);
+            logger.error("[SuggestMe] Failed to save intelligent tuning:", e);
         } 
     }, []);
 
@@ -1167,7 +1200,7 @@ const ModeTuningPage = () => {
         try {
             await call<[string, FreshAirTuning], { success: boolean }>("save_mode_tuning", "fresh_air", tuning);
         } catch (e) {
-            console.error("[SuggestMe] Failed to save fresh air tuning:", e);
+            logger.error("[SuggestMe] Failed to save fresh air tuning:", e);
         }
     }, []);
 
@@ -1179,7 +1212,7 @@ const ModeTuningPage = () => {
                 toaster.toast({ title: "SuggestMe • Reset", body: "Intelligent mode reset to defaults", duration: 2000 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Failed to reset intelligent tuning:", e);
+            logger.error("[SuggestMe] Failed to reset intelligent tuning:", e);
         }
     };
 
@@ -1191,7 +1224,7 @@ const ModeTuningPage = () => {
                 toaster.toast({ title: "SuggestMe • Reset", body: "Fresh Air mode reset to defaults", duration: 2000 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Failed to reset fresh air tuning:", e);
+            logger.error("[SuggestMe] Failed to reset fresh air tuning:", e);
         }
     };
 
@@ -1452,6 +1485,30 @@ const ModeTuningPage = () => {
     );
 };
 
+const StatisticsPage = () => {
+    const [drillDownData, setDrillDownData] = useState<{ label: string; games: Game[] } | null>(null);
+
+    const handleViewGames = (label: string, games: Game[]) => {
+        setDrillDownData({ label, games });
+    };
+
+    const handleBack = () => {
+        setDrillDownData(null);
+    };
+
+    if (drillDownData) {
+        return (
+            <MetadataDrillDown
+                label={drillDownData.label}
+                games={drillDownData.games}
+                onBack={handleBack}
+            />
+        );
+    }
+
+    return <StatisticsTab onViewGames={handleViewGames} />;
+};
+
 export const SettingsPage = () => {
     const pages = [
         {
@@ -1468,6 +1525,11 @@ export const SettingsPage = () => {
             title: "Library",
             icon: <FaDatabase size={14} />,
             content: <LibraryPage />
+        },
+        {
+            title: "Statistics",
+            icon: <FaChartBar size={14} />,
+            content: <StatisticsPage />
         },
         {
             title: "Mode Tuning",

@@ -55,15 +55,23 @@ export interface SuggestFilters {
 }
 
 export interface SuggestMeConfig {
-  steam_api_key?: string;
-  steam_id?: string;
+  has_steam_api_key?: boolean;
+  has_steam_id?: boolean;
   history_limit?: number;
   mode_order?: SuggestMode[];
   default_mode?: SuggestMode;
   default_filters?: SuggestFilters;
   hide_credentials?: boolean;
-  rawg_api_key?: string;
+  has_rawg_api_key?: boolean;
   date_format?: 'US' | 'EU' | 'ISO';
+  luck_spin_wheel_enabled?: boolean;
+  spin_wheel_silent?: boolean;
+}
+
+export interface Credentials {
+  steam_api_key: string;
+  steam_id: string;
+  rawg_api_key: string;
 }
 
 export interface SuggestionResult {
@@ -222,6 +230,15 @@ export const DEFAULT_FRESH_AIR_TUNING: FreshAirTuning = {
   top_candidate_percentile: 20,
   review_score_weight: 0.15,
 };
+
+export interface SpinWheelPayload {
+  winner: Game | null;
+  candidates: Game[];
+  winner_index: number;
+  candidates_count?: number;
+  excluded_count?: number;
+  error?: string;
+}
 
 export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {
   const arraysEqual = (x: string[] | number[] | undefined, y: string[] | number[] | undefined) => {

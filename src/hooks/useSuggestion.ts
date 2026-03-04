@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { call } from "@decky/api";
 import { SuggestionResult, SuggestMode, SuggestFilters, HistoryEntry, DEFAULT_FILTERS } from "../types";
+import { logger } from "../utils/logger";
 
 declare const SteamClient: {
   InstallFolder: {
@@ -29,7 +30,7 @@ function getInstalledAppIds(): number[] {
       return installed;
     }
   } catch (e) {
-    console.warn("[SuggestMe] Failed to get installed apps:", e);
+    logger.warn("[SuggestMe] Failed to get installed apps:", e);
   }
   return [];
 }
@@ -52,7 +53,7 @@ function getCollectionAppIds(collectionNames: string[]): number[] {
       }
     }
   } catch (e) {
-    console.warn("[SuggestMe] Failed to get collection appids:", e);
+    logger.warn("[SuggestMe] Failed to get collection appids:", e);
   }
   return [...new Set(appids)];
 }
@@ -88,7 +89,7 @@ export function useSuggestion() {
         setCurrentSuggestion(result);
         return result;
       } catch (error) {
-        console.error("[SuggestMe] Failed to get suggestion:", error);
+        logger.error("[SuggestMe] Failed to get suggestion:", error);
         const errorResult: SuggestionResult = {
           game: null,
           candidates_count: 0,
@@ -107,7 +108,7 @@ export function useSuggestion() {
       const result = await call<[number], HistoryEntry[]>("get_history", limit);
       setHistory(result);
     } catch (error) {
-      console.error("[SuggestMe] Failed to load history:", error);
+      logger.error("[SuggestMe] Failed to load history:", error);
     }
   }, []);
 
@@ -119,7 +120,7 @@ export function useSuggestion() {
       }
       return result.success;
     } catch (error) {
-      console.error("[SuggestMe] Failed to clear history:", error);
+      logger.error("[SuggestMe] Failed to clear history:", error);
       return false;
     }
   }, []);

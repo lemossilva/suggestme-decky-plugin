@@ -6,6 +6,7 @@ import {
   Focusable,
   Navigation,
 } from "@decky/ui";
+import { logger } from "../utils/logger";
 
 declare const SteamClient: {
   Apps: {
@@ -30,7 +31,7 @@ function getInstalledAppIds(): number[] {
       return installed;
     }
   } catch (e) {
-    console.error("[SuggestMe] Failed to get installed apps:", e);
+    logger.error("[SuggestMe] Failed to get installed apps:", e);
   }
   return [];
 }
@@ -50,6 +51,7 @@ import { navigateToNonSteamGames } from "./NonSteamGamesModal";
 import { navigateToPlayNext } from "./PlayNextModal";
 import { navigateToHistory } from "./HistoryModal";
 import { navigateToExcludedGames } from "./ExcludedGamesModal";
+import { navigateToSpinWheel } from "./SpinWheelPage";
 import {
   SuggestMode,
   SuggestFilters,
@@ -122,7 +124,7 @@ const TabButton = ({ label, icon, active, onClick }: TabButtonProps) => {
 };
 
 export function SuggestMeRoot() {
-  const { config, hasCredentials, setDefaultFilters } = useSuggestMeConfig();
+  const { config, hasCredentials, setDefaultFilters, setLuckSpinWheelEnabled } = useSuggestMeConfig();
   const { status, availableGenres, availableTags, availableCommunityTags } = useLibraryStatus();
   const { requestSuggestion, clearCurrentSuggestion } =
     useSuggestion();
@@ -158,8 +160,8 @@ export function SuggestMeRoot() {
     intelligent: null,
     fresh_air: null
   });
-
   const filtersActive = hasActiveFilters(filters);
+  const spinWheelEnabled = config.luck_spin_wheel_enabled ?? false;
   const presetMatchesFilters = activePreset ? filtersEqual(filters, activePreset.filters) : false;
   const presetWasModified = activePreset !== null && !presetMatchesFilters;
   const filterSummary = (activePreset && presetMatchesFilters) ? activePreset.label : getFilterSummary(filters);
@@ -186,7 +188,7 @@ export function SuggestMeRoot() {
       const result = await call<[], Record<SuggestMode, HistoryEntry[]>>("get_suggestion_history");
       if (result) setHistory(result);
     } catch (e) {
-      console.error("[SuggestMe] Failed to load history:", e);
+      logger.error("[SuggestMe] Failed to load history:", e);
     }
   }, []);
 
@@ -195,7 +197,7 @@ export function SuggestMeRoot() {
       const result = await call<[], NonSteamGamesInfo>("get_non_steam_games");
       if (result) setNonSteamInfo(result);
     } catch (e) {
-      console.error("[SuggestMe] Failed to load non-steam info:", e);
+      logger.error("[SuggestMe] Failed to load non-steam info:", e);
     }
   }, []);
 
@@ -216,7 +218,7 @@ export function SuggestMeRoot() {
           }
         }
       } catch (e) {
-        console.debug("[SuggestMe] Frontend collection read failed:", e);
+        logger.debug("[SuggestMe] Frontend collection read failed:", e);
       }
 
       if (frontendCollections.length > 0) {
@@ -226,7 +228,7 @@ export function SuggestMeRoot() {
         if (result?.collections) setAvailableCollections(result.collections);
       }
     } catch (e) {
-      console.error("[SuggestMe] Failed to load collections:", e);
+      logger.error("[SuggestMe] Failed to load collections:", e);
     }
   }, []);
 
@@ -246,7 +248,7 @@ export function SuggestMeRoot() {
       const result = await call<[object, number[]], { count: number; excluded_count: number }>("get_candidates_count", filters, installedAppIds);
       if (result) setCandidatesCount({ candidates: result.count, excluded: result.excluded_count });
     } catch (e) {
-      console.error("[SuggestMe] Failed to get candidates count:", e);
+      logger.error("[SuggestMe] Failed to get candidates count:", e);
     }
   }, [filters, hasCredentials, status.total_games]);
 
@@ -332,7 +334,7 @@ export function SuggestMeRoot() {
       await call<[string, number], boolean>("delete_history_entry", mode, appid);
       loadHistory();
     } catch (e) {
-      console.error("[SuggestMe] Failed to delete history entry:", e);
+      logger.error("[SuggestMe] Failed to delete history entry:", e);
     }
   };
 
@@ -800,6 +802,31 @@ export function SuggestMeRoot() {
                       Tune this algorithm in Settings &gt; Mode Tuning
                     </div>
                   )}
+                  {activeTab === 'luck' && (
+                    <Focusable
+                      onActivate={() => setLuckSpinWheelEnabled(!spinWheelEnabled)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        marginTop: 4,
+                        padding: '6px 12px',
+                        backgroundColor: spinWheelEnabled ? '#aa884422' : '#ffffff08',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        border: '2px solid transparent',
+                        alignSelf: 'center'
+                      }}
+                      onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                      onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                    >
+                      <FaDice size={12} style={{ color: spinWheelEnabled ? '#aa8844' : '#666' }} />
+                      <span style={{ fontSize: 10, color: spinWheelEnabled ? '#aa8844' : '#888' }}>
+                        Spin Wheel {spinWheelEnabled ? 'ON' : 'OFF'}
+                      </span>
+                    </Focusable>
+                  )}
                 </div>
               </PanelSectionRow>
             </PanelSection>
@@ -811,11 +838,30 @@ export function SuggestMeRoot() {
               <PanelSectionRow>
                 <ButtonItem
                   layout="below"
-                  onClick={handleSuggest}
+                  onClick={activeTab === 'luck' && spinWheelEnabled ? () => {
+                    navigateToSpinWheel(
+                      filters,
+                      getInstalledAppIds(),
+                      (activePreset && presetMatchesFilters) ? activePreset.label : undefined,
+                      (winner) => {
+                        if (winner) {
+                          setSuggestionsPerMode(prev => ({
+                            ...prev,
+                            luck: {
+                              game: winner,
+                              candidates_count: 0,
+                              mode_used: 'luck',
+                            }
+                          }));
+                        }
+                        loadHistory();
+                      }
+                    );
+                  } : handleSuggest}
                   disabled={status.is_refreshing}
                 >
                   <FaMagic style={{ marginRight: 8 }} />
-                  Suggest a Game
+                  {activeTab === 'luck' && spinWheelEnabled ? 'Spin the Wheel!' : 'Suggest a Game'}
                 </ButtonItem>
               </PanelSectionRow>
             </div>
@@ -991,6 +1037,7 @@ export function SuggestMeRoot() {
           )}
         </>
       )}
+
     </div>
   );
 }

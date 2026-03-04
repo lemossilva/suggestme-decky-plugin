@@ -30,6 +30,7 @@ __pycache__/
 # Logs
 *.log
 logs/
+CHANGELOG.md
 
 # Environment
 .env

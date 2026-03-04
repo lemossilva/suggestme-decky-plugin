@@ -10,6 +10,7 @@ import { routerHook, call, toaster } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FaListUl, FaTrash, FaSync, FaChevronRight } from "react-icons/fa";
 import { PlayNextEntry } from "../types";
+import { logger } from "../utils/logger";
 
 export const PLAY_NEXT_ROUTE = '/suggestme/play-next';
 
@@ -119,7 +120,7 @@ export const PlayNextPage = () => {
             const result = await call<[], { games: PlayNextEntry[]; count: number }>("get_play_next_list");
             setGames(result.games || []);
         } catch (e) {
-            console.error("[SuggestMe] Failed to load play next list:", e);
+            logger.error("[SuggestMe] Failed to load play next list:", e);
         } finally {
             setLoading(false);
         }
@@ -135,7 +136,7 @@ export const PlayNextPage = () => {
             await call<[number], { success: boolean }>("remove_from_play_next", appid);
             await loadList();
         } catch (e) {
-            console.error("[SuggestMe] Failed to remove game:", e);
+            logger.error("[SuggestMe] Failed to remove game:", e);
         } finally {
             setRemovingAppid(null);
         }
@@ -152,7 +153,7 @@ export const PlayNextPage = () => {
                 duration: 2000,
             });
         } catch (e) {
-            console.error("[SuggestMe] Failed to clear list:", e);
+            logger.error("[SuggestMe] Failed to clear list:", e);
         } finally {
             setClearing(false);
         }
@@ -248,7 +249,7 @@ export const PlayNextPage = () => {
                 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Failed to sync to collection:", e);
+            logger.error("[SuggestMe] Failed to sync to collection:", e);
             toaster.toast({
                 title: "SuggestMe • Sync Failed",
                 body: "An error occurred",

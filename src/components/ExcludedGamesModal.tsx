@@ -10,6 +10,7 @@ import { routerHook, call, toaster } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FaBan, FaTrash, FaSync, FaChevronRight } from "react-icons/fa";
 import { ExcludedGame } from "../types";
+import { logger } from "../utils/logger";
 
 export const EXCLUDED_GAMES_ROUTE = '/suggestme/excluded';
 
@@ -119,7 +120,7 @@ export const ExcludedGamesPage = () => {
             const result = await call<[], { games: ExcludedGame[]; count: number }>("get_excluded_games");
             setGames(result.games || []);
         } catch (e) {
-            console.error("[SuggestMe] Failed to load excluded games:", e);
+            logger.error("[SuggestMe] Failed to load excluded games:", e);
         } finally {
             setLoading(false);
         }
@@ -140,7 +141,7 @@ export const ExcludedGamesPage = () => {
                 duration: 2000,
             });
         } catch (e) {
-            console.error("[SuggestMe] Failed to remove game:", e);
+            logger.error("[SuggestMe] Failed to remove game:", e);
         } finally {
             setRemovingAppid(null);
         }
@@ -157,7 +158,7 @@ export const ExcludedGamesPage = () => {
                 duration: 2000,
             });
         } catch (e) {
-            console.error("[SuggestMe] Failed to clear list:", e);
+            logger.error("[SuggestMe] Failed to clear list:", e);
         } finally {
             setClearing(false);
         }
@@ -253,7 +254,7 @@ export const ExcludedGamesPage = () => {
                 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Failed to sync to collection:", e);
+            logger.error("[SuggestMe] Failed to sync to collection:", e);
             toaster.toast({
                 title: "SuggestMe • Sync Failed",
                 body: "An error occurred",

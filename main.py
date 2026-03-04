@@ -262,7 +262,10 @@ DEFAULT_SETTINGS = {
     "active_preset_index": None,
     "intelligent_tuning": DEFAULT_INTELLIGENT_TUNING.to_dict(),
     "fresh_air_tuning": DEFAULT_FRESH_AIR_TUNING.to_dict(),
-    "hide_credentials": False
+    "hide_credentials": False,
+    "date_format": "US",
+    "luck_spin_wheel_enabled": False,
+    "spin_wheel_silent": False
 }
 
 
@@ -469,6 +472,11 @@ class Plugin:
             decky.logger.warning(f"Steam ID detection failed: {e}")
         return None
 
+    async def log_message(self, level: str, message: str) -> None:
+        """Route frontend logs to the decky plugin logger"""
+        log_func = getattr(decky.logger, level.lower(), decky.logger.info)
+        log_func(f"[Frontend] {message}")
+
     async def get_detected_steam_id(self) -> dict:
         steam_id = self._detect_steam_id()
         return {
@@ -501,14 +509,27 @@ class Plugin:
         decky.logger.info("SuggestMe plugin uninstalled")
 
     async def get_config(self) -> dict:
+        api_key = self.settings.get("steam_api_key", "")
+        steam_id = self.settings.get("steam_id", "")
+        rawg_key = self.settings.get("rawg_api_key", "")
         return {
-            "steam_api_key": self.settings.get("steam_api_key", ""),
-            "steam_id": self.settings.get("steam_id", ""),
+            "has_steam_api_key": bool(api_key),
+            "has_steam_id": bool(steam_id),
             "history_limit": self.settings.get("history_limit", 50),
             "mode_order": self.settings.get("mode_order", ["luck", "guided", "intelligent", "fresh_air"]),
             "default_mode": self.settings.get("default_mode", "luck"),
             "default_filters": self.settings.get("default_filters", DEFAULT_SETTINGS["default_filters"]),
             "hide_credentials": self.settings.get("hide_credentials", True),
+            "has_rawg_api_key": bool(rawg_key),
+            "date_format": self.settings.get("date_format", "US"),
+            "luck_spin_wheel_enabled": self.settings.get("luck_spin_wheel_enabled", False),
+            "spin_wheel_silent": self.settings.get("spin_wheel_silent", False),
+        }
+
+    async def get_credentials(self) -> dict:
+        return {
+            "steam_api_key": self.settings.get("steam_api_key", ""),
+            "steam_id": self.settings.get("steam_id", ""),
             "rawg_api_key": self.settings.get("rawg_api_key", ""),
         }
 
@@ -534,6 +555,16 @@ class Plugin:
 
     async def save_date_format(self, format: str) -> dict:
         self.settings["date_format"] = format
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_luck_spin_wheel_enabled(self, enabled: bool) -> dict:
+        self.settings["luck_spin_wheel_enabled"] = enabled
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_spin_wheel_silent(self, silent: bool) -> dict:
+        self.settings["spin_wheel_silent"] = silent
         success = self._save_settings()
         return {"success": success}
 
@@ -751,6 +782,11 @@ class Plugin:
             "is_refreshing": self.is_refreshing,
             "error": self.refresh_error,
             "sync_progress": progress_info,
+        }
+
+    async def get_library_games(self) -> dict:
+        return {
+            "games": [g.to_dict() for g in self.library_cache]
         }
 
     async def get_review_coverage_stats(self) -> dict:
@@ -1679,6 +1715,72 @@ class Plugin:
             "candidates_count": len(candidates),
             "excluded_count": excluded_count,
             "mode_used": mode,
+            "error": None,
+        }
+
+    async def get_luck_spin_candidates(self, filters: dict, installed_appids: list[int] = None, preset_name: str = None) -> dict:
+        if not self.library_cache:
+            return {
+                "winner": None,
+                "candidates": [],
+                "winner_index": 0,
+                "error": "Library is empty. Please refresh your library first.",
+            }
+
+        installed_set = set(installed_appids) if installed_appids else set()
+        
+        user_collections = None
+        include_cols = filters.get("include_collections", [])
+        exclude_cols = filters.get("exclude_collections", [])
+        if include_cols or exclude_cols:
+            user_collections = await self._get_user_collections()
+            
+        candidates, excluded_count = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
+
+        mode_history = self._get_mode_history_appids("luck")
+        fresh_candidates = [g for g in candidates if g.appid not in mode_history]
+
+        if not fresh_candidates:
+            fresh_candidates = candidates
+
+        if not fresh_candidates:
+            return {
+                "winner": None,
+                "candidates": [],
+                "winner_index": 0,
+                "error": "No games match your filters.",
+            }
+
+        weights = []
+        for g in fresh_candidates:
+            w = 1.0
+            if g.playtime_forever == 0:
+                w = 2.0
+            weights.append(w)
+        
+        selected_game = random.choices(fresh_candidates, weights=weights, k=1)[0]
+        
+        self._add_to_history(selected_game, "luck", filters, preset_name)
+
+        candidate_dicts = [g.to_dict() for g in fresh_candidates]
+        
+        winner_actual_index = next((i for i, g in enumerate(fresh_candidates) if g.appid == selected_game.appid), 0)
+        
+        total_candidates = len(candidate_dicts)
+        if total_candidates > 1:
+            random_offset = random.randint(0, total_candidates - 1)
+            shuffled_candidates = candidate_dicts[random_offset:] + candidate_dicts[:random_offset]
+            new_winner_index = (winner_actual_index - random_offset) % total_candidates
+        else:
+            shuffled_candidates = candidate_dicts
+            new_winner_index = 0
+
+        return {
+            "winner": selected_game.to_dict(),
+            "candidates": shuffled_candidates,
+            "winner_index": new_winner_index,
+            "candidates_count": len(candidates),
+            "excluded_count": excluded_count,
             "error": None,
         }
 

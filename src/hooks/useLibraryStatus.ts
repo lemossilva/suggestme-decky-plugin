@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { call, addEventListener, removeEventListener, toaster } from "@decky/api";
 import { LibraryStatus, RefreshProgress } from "../types";
+import { logger } from "../utils/logger";
 
 export function useLibraryStatus() {
   const [status, setStatus] = useState<LibraryStatus>({
@@ -21,7 +22,7 @@ export function useLibraryStatus() {
       const result = await call<[], LibraryStatus>("get_library_status");
       setStatus(result);
     } catch (error) {
-      console.error("[SuggestMe] Failed to load library status:", error);
+      logger.error("[SuggestMe] Failed to load library status:", error);
     }
   }, []);
 
@@ -36,7 +37,7 @@ export function useLibraryStatus() {
       setAvailableTags(tags);
       setAvailableCommunityTags(communityTags);
     } catch (error) {
-      console.error("[SuggestMe] Failed to load genres/tags:", error);
+      logger.error("[SuggestMe] Failed to load genres/tags:", error);
     }
   }, []);
 
@@ -112,7 +113,7 @@ export function useLibraryStatus() {
       }
       return result.success;
     } catch (error) {
-      console.error("[SuggestMe] Failed to refresh library:", error);
+      logger.error("[SuggestMe] Failed to refresh library:", error);
       toaster.toast({
         title: "SuggestMe • Sync Failed",
         body: "Failed to refresh library",

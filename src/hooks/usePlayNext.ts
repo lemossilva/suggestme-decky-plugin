@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { call } from "@decky/api";
 import { PlayNextEntry, Game } from "../types";
+import { logger } from "../utils/logger";
 
 export function usePlayNext() {
   const [list, setList] = useState<PlayNextEntry[]>([]);
@@ -12,7 +13,7 @@ export function usePlayNext() {
         setList(result.games || []);
       }
     } catch (e) {
-      console.error("[SuggestMe] Failed to load play next list:", e);
+      logger.error("[SuggestMe] Failed to load play next list:", e);
     }
   }, []);
 
@@ -37,7 +38,7 @@ export function usePlayNext() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to add to play next:", e);
+      logger.error("[SuggestMe] Failed to add to play next:", e);
       return false;
     }
   }, [loadList]);
@@ -50,7 +51,7 @@ export function usePlayNext() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to remove from play next:", e);
+      logger.error("[SuggestMe] Failed to remove from play next:", e);
       return false;
     }
   }, [loadList]);
@@ -63,7 +64,7 @@ export function usePlayNext() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to clear play next list:", e);
+      logger.error("[SuggestMe] Failed to clear play next list:", e);
       return false;
     }
   }, []);

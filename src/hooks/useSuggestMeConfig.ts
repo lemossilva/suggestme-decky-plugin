@@ -1,17 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
 import { call } from "@decky/api";
-import { SuggestMeConfig, SuggestFilters, SuggestMode, DEFAULT_FILTERS } from "../types";
+import { SuggestMeConfig, SuggestFilters, SuggestMode, DEFAULT_FILTERS, Credentials } from "../types";
+import { logger } from "../utils/logger";
 
 export function useSuggestMeConfig() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [config, setConfig] = useState<SuggestMeConfig>({
-    steam_api_key: "",
-    steam_id: "",
+    has_steam_api_key: false,
+    has_steam_id: false,
     history_limit: 50,
     mode_order: ["luck", "guided", "intelligent", "fresh_air"],
     default_mode: "luck",
     default_filters: DEFAULT_FILTERS,
     hide_credentials: true,
+    has_rawg_api_key: false,
   });
 
   const loadConfig = useCallback(async () => {
@@ -19,7 +21,7 @@ export function useSuggestMeConfig() {
       const currentConfig = await call<[], SuggestMeConfig>("get_config");
       setConfig(currentConfig);
     } catch (error) {
-      console.error("[SuggestMe] Failed to load config:", error);
+      logger.error("[SuggestMe] Failed to load config:", error);
     } finally {
       setIsLoaded(true);
     }
@@ -35,6 +37,15 @@ export function useSuggestMeConfig() {
     };
   }, [loadConfig]);
 
+  const getCredentials = useCallback(async (): Promise<Credentials> => {
+    try {
+      return await call<[], Credentials>("get_credentials");
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to get credentials:", error);
+      return { steam_api_key: "", steam_id: "", rawg_api_key: "" };
+    }
+  }, []);
+
   const setSteamCredentials = useCallback(
     async (apiKey: string, steamId: string): Promise<boolean> => {
       try {
@@ -46,14 +57,14 @@ export function useSuggestMeConfig() {
         if (result.success) {
           setConfig((prev) => ({
             ...prev,
-            steam_api_key: apiKey,
-            steam_id: steamId,
+            has_steam_api_key: Boolean(apiKey),
+            has_steam_id: Boolean(steamId),
           }));
           return true;
         }
         return false;
       } catch (error) {
-        console.error("[SuggestMe] Failed to save credentials:", error);
+        logger.error("[SuggestMe] Failed to save credentials:", error);
         return false;
       }
     },
@@ -69,7 +80,7 @@ export function useSuggestMeConfig() {
       }
       return false;
     } catch (error) {
-      console.error("[SuggestMe] Failed to save history limit:", error);
+      logger.error("[SuggestMe] Failed to save history limit:", error);
       return false;
     }
   }, []);
@@ -83,7 +94,7 @@ export function useSuggestMeConfig() {
       }
       return false;
     } catch (error) {
-      console.error("[SuggestMe] Failed to save mode order:", error);
+      logger.error("[SuggestMe] Failed to save mode order:", error);
       return false;
     }
   }, []);
@@ -97,7 +108,7 @@ export function useSuggestMeConfig() {
       }
       return false;
     } catch (error) {
-      console.error("[SuggestMe] Failed to save default mode:", error);
+      logger.error("[SuggestMe] Failed to save default mode:", error);
       return false;
     }
   }, []);
@@ -111,7 +122,7 @@ export function useSuggestMeConfig() {
       }
       return false;
     } catch (error) {
-      console.error("[SuggestMe] Failed to save hide credentials:", error);
+      logger.error("[SuggestMe] Failed to save hide credentials:", error);
       return false;
     }
   }, []);
@@ -120,12 +131,12 @@ export function useSuggestMeConfig() {
     try {
       const result = await call<[string], { success: boolean }>("save_rawg_api_key", apiKey);
       if (result.success) {
-        setConfig((prev) => ({ ...prev, rawg_api_key: apiKey }));
+        setConfig((prev) => ({ ...prev, has_rawg_api_key: Boolean(apiKey) }));
         return true;
       }
       return false;
     } catch (error) {
-      console.error("[SuggestMe] Failed to save RAWG API key:", error);
+      logger.error("[SuggestMe] Failed to save RAWG API key:", error);
       return false;
     }
   }, []);
@@ -143,7 +154,7 @@ export function useSuggestMeConfig() {
         }
         return false;
       } catch (error) {
-        console.error("[SuggestMe] Failed to save default filters:", error);
+        logger.error("[SuggestMe] Failed to save default filters:", error);
         return false;
       }
     },
@@ -165,17 +176,58 @@ export function useSuggestMeConfig() {
       }
       return false;
     } catch (error) {
-      console.error("[SuggestMe] Failed to save date format:", error);
+      logger.error("[SuggestMe] Failed to save date format:", error);
       return false;
     }
   }, []);
 
-  const hasCredentials = Boolean(config.steam_api_key && config.steam_id);
+  const setLuckSpinWheelEnabled = useCallback(async (enabled: boolean): Promise<boolean> => {
+    try {
+      const result = await call<[boolean], { success: boolean }>(
+        "save_luck_spin_wheel_enabled",
+        enabled
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          luck_spin_wheel_enabled: enabled,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to save spin wheel setting:", error);
+      return false;
+    }
+  }, []);
+
+  const setSpinWheelSilent = useCallback(async (silent: boolean): Promise<boolean> => {
+    try {
+      const result = await call<[boolean], { success: boolean }>(
+        "save_spin_wheel_silent",
+        silent
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          spin_wheel_silent: silent,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to save spin wheel silent setting:", error);
+      return false;
+    }
+  }, []);
+
+  const hasCredentials = Boolean(config.has_steam_api_key && config.has_steam_id);
 
   return {
     isLoaded,
     config,
     hasCredentials,
+    getCredentials,
     setSteamCredentials,
     setHistoryLimit,
     setModeOrder,
@@ -184,6 +236,8 @@ export function useSuggestMeConfig() {
     setHideCredentials,
     setRawgApiKey,
     setDateFormat,
+    setLuckSpinWheelEnabled,
+    setSpinWheelSilent,
     reload: loadConfig,
   };
 }

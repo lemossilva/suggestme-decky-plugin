@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { call } from "@decky/api";
 import { FilterPreset, FilterPresetsState, SuggestFilters } from "../types";
+import { logger } from "../utils/logger";
 
 export function useFilterPresets() {
   const [presets, setPresets] = useState<(FilterPreset | null)[]>([null, null, null, null, null]);
@@ -14,7 +15,7 @@ export function useFilterPresets() {
         setActiveIndex(result.active_index);
       }
     } catch (e) {
-      console.error("[SuggestMe] Failed to load filter presets:", e);
+      logger.error("[SuggestMe] Failed to load filter presets:", e);
     }
   }, []);
 
@@ -39,7 +40,7 @@ export function useFilterPresets() {
       }
       return result;
     } catch (e) {
-      console.error("[SuggestMe] Failed to save preset:", e);
+      logger.error("[SuggestMe] Failed to save preset:", e);
       return { success: false, error: "Failed to save preset" };
     }
   }, [loadPresets]);
@@ -59,7 +60,7 @@ export function useFilterPresets() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to rename preset:", e);
+      logger.error("[SuggestMe] Failed to rename preset:", e);
       return false;
     }
   }, [loadPresets]);
@@ -75,7 +76,7 @@ export function useFilterPresets() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to delete preset:", e);
+      logger.error("[SuggestMe] Failed to delete preset:", e);
       return false;
     }
   }, [loadPresets]);
@@ -91,7 +92,7 @@ export function useFilterPresets() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to set active preset:", e);
+      logger.error("[SuggestMe] Failed to set active preset:", e);
       return false;
     }
   }, []);

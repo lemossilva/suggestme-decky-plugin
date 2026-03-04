@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { FaTrash, FaChevronRight, FaHistory, FaStore, FaFilter } from "react-icons/fa";
 import { HistoryEntry, SuggestMode, MODE_LABELS, SuggestFilters, filtersEqual } from "../types";
 import { getFilterSummary, hasActiveFilters } from "./FiltersModal";
+import { logger } from "../utils/logger";
 
 export const HISTORY_ROUTE = '/suggestme/history';
 
@@ -189,7 +190,7 @@ export const HistoryPage = () => {
                 setDateFormat(result.date_format);
             }
         } catch (e) {
-            console.error("[SuggestMe] Failed to load config:", e);
+            logger.error("[SuggestMe] Failed to load config:", e);
         }
     }, []);
 
@@ -199,7 +200,7 @@ export const HistoryPage = () => {
             const result = await call<[number], HistoryEntry[]>("get_history", limit);
             setHistoryItems(result || []);
         } catch (e) {
-            console.error("[SuggestMe] Failed to load history:", e);
+            logger.error("[SuggestMe] Failed to load history:", e);
         }
     }, []);
 
@@ -226,7 +227,7 @@ export const HistoryPage = () => {
             await call<[string, number], boolean>("delete_history_entry", mode, appid);
             await loadList();
         } catch (e) {
-            console.error("[SuggestMe] Failed to remove game from history:", e);
+            logger.error("[SuggestMe] Failed to remove game from history:", e);
         }
     };
 
@@ -239,7 +240,7 @@ export const HistoryPage = () => {
             }
             await loadList();
         } catch (e) {
-            console.error("[SuggestMe] Failed to clear history:", e);
+            logger.error("[SuggestMe] Failed to clear history:", e);
         }
     };
 
@@ -269,7 +270,7 @@ export const HistoryPage = () => {
 
             Navigation.OpenQuickAccessMenu();
         } catch (e) {
-            console.error("[SuggestMe] Failed to restore filters:", e);
+            logger.error("[SuggestMe] Failed to restore filters:", e);
         }
     };
 

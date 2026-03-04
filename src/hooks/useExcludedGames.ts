@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { call } from "@decky/api";
 import { ExcludedGame, Game } from "../types";
+import { logger } from "../utils/logger";
 
 export function useExcludedGames() {
   const [list, setList] = useState<ExcludedGame[]>([]);
@@ -10,7 +11,7 @@ export function useExcludedGames() {
       const result = await call<[], { games: ExcludedGame[]; count: number }>("get_excluded_games");
       if (result?.games) setList(result.games);
     } catch (e) {
-      console.error("[SuggestMe] Failed to load excluded games:", e);
+      logger.error("[SuggestMe] Failed to load excluded games:", e);
     }
   }, []);
 
@@ -43,7 +44,7 @@ export function useExcludedGames() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to exclude game:", e);
+      logger.error("[SuggestMe] Failed to exclude game:", e);
       return false;
     }
   }, [loadList]);
@@ -56,7 +57,7 @@ export function useExcludedGames() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to unexclude game:", e);
+      logger.error("[SuggestMe] Failed to unexclude game:", e);
       return false;
     }
   }, [loadList]);
@@ -69,7 +70,7 @@ export function useExcludedGames() {
       }
       return result.success;
     } catch (e) {
-      console.error("[SuggestMe] Failed to clear excluded games:", e);
+      logger.error("[SuggestMe] Failed to clear excluded games:", e);
       return false;
     }
   }, []);

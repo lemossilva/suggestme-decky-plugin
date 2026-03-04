@@ -12,6 +12,7 @@ import { routerHook, call, toaster } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FaGamepad, FaCheck, FaSync, FaTrash, FaChevronRight, FaExclamationTriangle, FaLink, FaEdit, FaSave, FaTimes } from "react-icons/fa";
 import { Game, NonSteamGamesInfo } from "../types";
+import { logger } from "../utils/logger";
 
 export const NON_STEAM_ROUTE = '/suggestme/non-steam';
 
@@ -260,7 +261,7 @@ export const NonSteamGamesPage = () => {
             const result = await call<[], NonSteamGamesInfo>("get_non_steam_games");
             setInfo(result);
         } catch (e) {
-            console.error("[SuggestMe] Failed to load non-steam games:", e);
+            logger.error("[SuggestMe] Failed to load non-steam games:", e);
         } finally {
             setLoading(false);
         }
@@ -290,7 +291,7 @@ export const NonSteamGamesPage = () => {
                 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Failed to sync non-steam games:", e);
+            logger.error("[SuggestMe] Failed to sync non-steam games:", e);
         } finally {
             setSyncing(false);
             setProgress(null);
@@ -303,7 +304,7 @@ export const NonSteamGamesPage = () => {
             await call<[string], any>("resync_non_steam_game", originalName);
             await loadInfo();
         } catch (e) {
-            console.error("[SuggestMe] Failed to resync game:", e);
+            logger.error("[SuggestMe] Failed to resync game:", e);
         } finally {
             setSyncingGame(null);
         }
@@ -314,7 +315,7 @@ export const NonSteamGamesPage = () => {
             await call<[string], any>("remove_non_steam_game", originalName);
             await loadInfo();
         } catch (e) {
-            console.error("[SuggestMe] Failed to remove game:", e);
+            logger.error("[SuggestMe] Failed to remove game:", e);
         }
     };
 
@@ -341,7 +342,7 @@ export const NonSteamGamesPage = () => {
                 });
             }
         } catch (e) {
-            console.error("[SuggestMe] Failed to update search term:", e);
+            logger.error("[SuggestMe] Failed to update search term:", e);
         } finally {
             setSyncingGame(null);
         }
