@@ -1476,10 +1476,10 @@ class Plugin:
                     continue
 
             # Collection filtering
-            if include_collections and game.appid not in allowed_by_collections:
+            if allowed_by_collections and game.appid not in allowed_by_collections:
                 continue
                 
-            if exclude_collections and game.appid in excluded_by_collections:
+            if excluded_by_collections and game.appid in excluded_by_collections:
                 continue
 
             candidates.append(game)
@@ -1630,14 +1630,6 @@ class Plugin:
                 "error": "Library is empty. Please refresh your library first.",
             }
 
-        deck_filter = filters.get("deck_status", [])
-        protondb_filter = filters.get("protondb_tier", [])
-        if deck_filter or protondb_filter:
-            sample_games = self.library_cache[:5]
-            for g in sample_games:
-                decky.logger.info(f"[Filter Debug] {g.name}: deck_status='{g.deck_status}', protondb_tier='{g.protondb_tier}'")
-            decky.logger.info(f"[Filter Debug] deck_filter={deck_filter}, protondb_filter={protondb_filter}")
-
         installed_set = set(installed_appids) if installed_appids else set()
         
         user_collections = None
@@ -1737,19 +1729,18 @@ class Plugin:
             
         candidates, excluded_count = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
 
-        mode_history = self._get_mode_history_appids("luck")
-        fresh_candidates = [g for g in candidates if g.appid not in mode_history]
-
-        if not fresh_candidates:
-            fresh_candidates = candidates
-
-        if not fresh_candidates:
+        if not candidates:
             return {
                 "winner": None,
                 "candidates": [],
                 "winner_index": 0,
                 "error": "No games match your filters.",
             }
+
+        mode_history = self._get_mode_history_appids("luck")
+        fresh_candidates = [g for g in candidates if g.appid not in mode_history]
+        if not fresh_candidates:
+            fresh_candidates = candidates
 
         weights = []
         for g in fresh_candidates:
@@ -1762,9 +1753,9 @@ class Plugin:
         
         self._add_to_history(selected_game, "luck", filters, preset_name)
 
-        candidate_dicts = [g.to_dict() for g in fresh_candidates]
+        candidate_dicts = [g.to_dict() for g in candidates]
         
-        winner_actual_index = next((i for i, g in enumerate(fresh_candidates) if g.appid == selected_game.appid), 0)
+        winner_actual_index = next((i for i, g in enumerate(candidates) if g.appid == selected_game.appid), 0)
         
         total_candidates = len(candidate_dicts)
         if total_candidates > 1:

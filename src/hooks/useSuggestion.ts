@@ -17,7 +17,7 @@ declare const appStore: {
   GetAppOverviewByAppID: (appid: number) => { local_per_client_data?: { installed?: boolean } } | null;
 };
 
-function getInstalledAppIds(): number[] {
+export function getInstalledAppIds(): number[] {
   try {
     if (typeof appStore !== 'undefined' && appStore.allApps) {
       const installed: number[] = [];
@@ -35,7 +35,7 @@ function getInstalledAppIds(): number[] {
   return [];
 }
 
-function getCollectionAppIds(collectionNames: string[]): number[] {
+export function getCollectionAppIds(collectionNames: string[]): number[] {
   if (!collectionNames || collectionNames.length === 0) return [];
   const appids: number[] = [];
   try {

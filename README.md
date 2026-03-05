@@ -1,7 +1,7 @@
 # SuggestMe
 
 ![SuggestMe](https://img.shields.io/badge/Decky-Plugin-blue)
-![Version](https://img.shields.io/badge/release-v1.2.0-green)
+![Version](https://img.shields.io/badge/release-v1.2.1-green)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 
 ![SuggestMe Promo](assets/promo.png)
@@ -45,8 +45,8 @@ Fine-tune how Intelligent and Fresh Air modes score games:
 
 ### History & UI Features
 - **Statistics Tab** - View data quality and metadata coverage analysis for your library. Track how many games are fully enriched vs missing key data like genres, tags, or scores, and click through to see exactly which games need metadata updates
-- **Spin Wheel** - Can't decide even with suggestions? Let the Spin Wheel randomly pick a game for you from your filtered candidates
-- **Track history** - Previously suggested games are tracked per-mode with quick actions to launch them
+- **Spin Wheel** - Can't decide even with suggestions? Let the Spin Wheel randomly pick a game for you from your filtered candidates. The wheel is fully responsive and looks great on both the Deck and external displays.
+- **Track history** - Previously suggested games are tracked per-mode with quick actions to launch them, add them to Play Next, or exclude them directly from the history view.
 - **Play Next & Excluded Lists** - Add games to a queue to play later, or exclude games from ever being suggested
 - **Steam Collections Integration** - Sync your Play Next queue and Excluded games directly to native Steam Collections
 - **Steam UI integration** - "Launch Game" button takes you directly to the game's library page

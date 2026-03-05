@@ -294,6 +294,18 @@ const GameSourcePage = ({ filters, setFilters }: { filters: SuggestFilters; setF
 
 const PlaytimePage = ({ filters, setFilters }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void }) => (
     <div style={{ padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
+        <div style={{ 
+            backgroundColor: '#ffaa0022', 
+            borderLeft: '4px solid #ffaa00', 
+            padding: '12px 16px', 
+            marginBottom: '16px',
+            borderRadius: '0 4px 4px 0',
+            fontSize: '13px',
+            color: '#ffcc66',
+            lineHeight: 1.4
+        }}>
+            <strong>Note:</strong> Non-Steam games do not track playtime in SteamOS and will always be treated as unplayed (0 hours).
+        </div>
         <PanelSection title="Playtime Filters">
             <PanelSectionRow>
                 <ToggleField
@@ -1205,7 +1217,7 @@ export const FiltersPage = () => {
                 style={{
                     display: 'flex',
                     gap: 8,
-                    padding: '8px 24px 40px 24px',
+                    padding: '8px 4px 50px 4px',
                     borderTop: '1px solid #ffffff11'
                 }}
             >
@@ -1214,7 +1226,7 @@ export const FiltersPage = () => {
                     onClick={handleReset}
                     style={{
                         flex: 1,
-                        padding: '8px 12px',
+                        padding: '4px 12px',
                         backgroundColor: resetFeedback ? '#88ff8833' : '#ffffff11',
                         borderRadius: 6,
                         textAlign: 'center',
@@ -1243,8 +1255,8 @@ export const FiltersPage = () => {
                     onActivate={handleSave}
                     onClick={handleSave}
                     style={{
-                        flex: 3,
-                        padding: '8px 0px',
+                        flex: 3.155,
+                        padding: '4px 0px',
                         backgroundColor: '#4488aa',
                         borderRadius: 6,
                         textAlign: 'center',
@@ -1302,7 +1314,7 @@ export function getFilterSummary(filters: SuggestFilters): string {
     if (filters.protondb_tier?.length) parts.push(`${filters.protondb_tier.length} ProtonDB`);
     if (filters.include_collections?.length) parts.push(`${filters.include_collections.length} collections`);
     if (filters.exclude_collections?.length) parts.push(`-${filters.exclude_collections.length} collections`);
-    if (filters.min_steam_review_score) parts.push(`Steam ≥${filters.min_steam_review_score}`);
+    if (filters.min_steam_review_score) parts.push(`Steam ≥${STEAM_REVIEW_SCORE_LABELS[filters.min_steam_review_score] || filters.min_steam_review_score}`);
     if (filters.min_metacritic_score) parts.push(`Meta ≥${filters.min_metacritic_score}`);
     if (!filters.include_games_without_reviews) parts.push('Reviews required');
     

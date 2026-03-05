@@ -12,9 +12,37 @@ import { logger } from "../utils/logger";
 
 export const SPIN_WHEEL_ROUTE = "/suggestme/spin-wheel";
 
-const WHEEL_SIZE_LARGE = 300;
-const WHEEL_SIZE_SMALL = 200;
-const SPIN_DURATION_MS = 5000;
+function useContainerScale(containerRef: React.RefObject<HTMLDivElement>) {
+    const [scale, setScale] = useState(1);
+    const measuredRef = useRef(false);
+
+    useEffect(() => {
+        if (measuredRef.current) return undefined;
+        const el = containerRef.current;
+        if (!el) return undefined;
+
+        const measure = () => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 10 && rect.height > 10) {
+                const vmin = Math.min(rect.width, rect.height);
+                setScale(Math.max(1, Math.min(vmin / 500, 3)));
+                measuredRef.current = true;
+            }
+        };
+        measure();
+        if (!measuredRef.current) {
+            const timer = setTimeout(measure, 50);
+            return () => clearTimeout(timer);
+        }
+        return undefined;
+    }, [containerRef]);
+
+    return scale;
+}
+
+const BASE_SPIN_DURATION_MS = 5000;
+const MIN_SPIN_DURATION_MS = 3000;
+const MAX_SPIN_DURATION_MS = 8000;
 const MIN_ROTATIONS = 6;
 const MAX_ROTATIONS = 10;
 const MAX_LABELS = 10;
@@ -61,6 +89,10 @@ export function SpinWheelPage() {
     const { excludeGame } = useExcludedGames();
     const { config, setSpinWheelSilent } = useSuggestMeConfig();
     const isSilent = config.spin_wheel_silent ?? false;
+
+    const containerRef = useRef<HTMLDivElement>(null);
+    const scale = useContainerScale(containerRef);
+    const s = (base: number) => Math.round(base * scale);
 
     const wheelRef = useRef<HTMLDivElement>(null);
     const animationRef = useRef<number | null>(null);
@@ -113,7 +145,7 @@ export function SpinWheelPage() {
         };
     }, [loadCandidates]);
 
-    const spinWheel = useCallback((velocityMultiplier: number = 1) => {
+    const spinWheel = useCallback((velocityMultiplier: number = 1, clockwise: boolean = true) => {
         if (!payload || isSpinning || payload.candidates.length === 0) return;
 
         setIsSpinning(true);
@@ -124,15 +156,32 @@ export function SpinWheelPage() {
         const sliceAngle = 360 / totalSlices;
 
         const targetSliceIndex = payload.winner_index;
+
+        // The slice is drawn such that its center is at (targetSliceIndex * sliceAngle + sliceAngle / 2)
         const targetAngle = 360 - (targetSliceIndex * sliceAngle + sliceAngle / 2);
 
         const baseRotations = MIN_ROTATIONS + Math.random() * (MAX_ROTATIONS - MIN_ROTATIONS);
-        const adjustedRotations = baseRotations * Math.max(0.7, Math.min(1.5, velocityMultiplier));
-        const totalRotation = adjustedRotations * 360 + targetAngle;
-
+        const adjustedRotations = Math.floor(baseRotations * Math.max(0.7, Math.min(1.8, velocityMultiplier)));
+        
+        // Ensure the final rotation lands exactly on the target angle
         const startRotation = rotation % 360;
+        const targetAbsoluteRotation = targetAngle + (adjustedRotations * 360);
+        
+        // Calculate the exact amount to rotate from current position
+        let totalRotation;
+        if (clockwise) {
+            totalRotation = targetAbsoluteRotation - startRotation;
+            if (totalRotation < 360 * MIN_ROTATIONS) totalRotation += 360;
+        } else {
+            // For counter-clockwise, go negative
+            const targetNegativeRotation = targetAngle - 360 - (adjustedRotations * 360);
+            totalRotation = targetNegativeRotation - startRotation;
+            if (totalRotation > -360 * MIN_ROTATIONS) totalRotation -= 360;
+        }
+
         const startTime = performance.now();
-        const duration = SPIN_DURATION_MS * Math.max(0.8, Math.min(1.2, velocityMultiplier));
+        const rawDuration = BASE_SPIN_DURATION_MS * velocityMultiplier;
+        const duration = Math.max(MIN_SPIN_DURATION_MS, Math.min(MAX_SPIN_DURATION_MS, rawDuration));
 
         silentRef.current = isSilent;
         lastSliceIndexRef.current = -1;
@@ -189,9 +238,11 @@ export function SpinWheelPage() {
         const dur = performance.now() - touchStartRef.current.time;
 
         const velocity = distance / Math.max(dur, 1);
+        const clockwise = dx > 0 || (dx === 0 && dy < 0);
 
         if (velocity > 0.3) {
-            spinWheel(Math.min(velocity / 2, 2));
+            const velocityMultiplier = Math.max(0.6, Math.min(velocity / 1.5, 2.0));
+            spinWheel(velocityMultiplier, clockwise);
         }
 
         touchStartRef.current = null;
@@ -281,7 +332,7 @@ export function SpinWheelPage() {
                     width: size, height: size, borderRadius: "50%",
                     backgroundColor: "#333", display: "flex",
                     alignItems: "center", justifyContent: "center",
-                    color: "#888", fontSize: 12,
+                    color: "#888", fontSize: s(12),
                 }}>
                     No candidates
                 </div>
@@ -290,7 +341,7 @@ export function SpinWheelPage() {
 
         const totalSlices = payload.candidates.length;
         const sliceAngle = 360 / totalSlices;
-        const showLabels = totalSlices <= MAX_LABELS && size >= WHEEL_SIZE_LARGE;
+        const showLabels = totalSlices <= MAX_LABELS && size >= 200;
 
         const gradientStops: string[] = [];
         for (let i = 0; i < totalSlices; i++) {
@@ -318,23 +369,26 @@ export function SpinWheelPage() {
             >
                 {showLabels && payload.candidates.map((game, i) => {
                     const angle = i * sliceAngle + sliceAngle / 2;
-                    const labelRadius = size * 0.33;
-                    const rad = (angle - 90) * (Math.PI / 180);
-                    const x = Math.cos(rad) * labelRadius;
-                    const y = Math.sin(rad) * labelRadius;
-                    const truncatedName = game.name.length > 10
-                        ? game.name.substring(0, 8) + "..."
-                        : game.name;
+                    const startRadius = size * 0.11; // Start right after the center circle (radius is 0.08)
+                    const availableWidth = (size * 0.5) - startRadius - s(8); // Available space to the edge
+                    
                     return (
                         <div key={game.appid} style={{
                             position: "absolute", left: "50%", top: "50%",
-                            transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${angle}deg)`,
-                            fontSize: 8, fontWeight: 600, color: "#fff",
-                            textShadow: "1px 1px 2px rgba(0,0,0,0.8)",
-                            whiteSpace: "nowrap", pointerEvents: "none",
-                            maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis",
+                            transformOrigin: "0 0",
+                            transform: `rotate(${angle - 90}deg) translate(${startRadius}px, -50%)`,
+                            fontSize: s(9), fontWeight: 600, color: "#fff",
+                            textShadow: "1px 1px 3px rgba(0,0,0,0.8)",
+                            pointerEvents: "none",
+                            width: availableWidth,
+                            textAlign: "left",
+                            lineHeight: 1.1,
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
                         }}>
-                            {truncatedName}
+                            {game.name}
                         </div>
                     );
                 })}
@@ -351,127 +405,138 @@ export function SpinWheelPage() {
         );
     };
 
-    const renderPointerAndWheel = (size: number) => (
-        <div style={{ position: "relative", flexShrink: 0 }}>
-            <div style={{
-                position: "absolute", top: -10, left: "50%",
-                transform: "translateX(-50%)", width: 0, height: 0,
-                borderLeft: "10px solid transparent",
-                borderRight: "10px solid transparent",
-                borderTop: "18px solid #ffaa00", zIndex: 10,
-                filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
-            }} />
-            {renderWheel(size)}
-        </div>
-    );
+    const renderPointerAndWheel = (size: number) => {
+        const pointerW = Math.round(size * 0.035);
+        const pointerH = Math.round(size * 0.06);
+        return (
+            <div style={{ position: "relative", flexShrink: 0 }}>
+                <div style={{
+                    position: "absolute", top: -pointerW, left: "50%",
+                    transform: "translateX(-50%)", width: 0, height: 0,
+                    borderLeft: `${pointerW}px solid transparent`,
+                    borderRight: `${pointerW}px solid transparent`,
+                    borderTop: `${pointerH}px solid #ffaa00`, zIndex: 10,
+                    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+                }} />
+                {renderWheel(size)}
+            </div>
+        );
+    };
 
     return (
-        <div style={{
-            width: '100%', height: '100%', backgroundColor: '#0e141b',
-            padding: '40px 24px 24px 24px', boxSizing: 'border-box',
-            display: 'flex', flexDirection: 'column',
-        }}>
+        <div
+            ref={containerRef}
+            style={{
+                width: '100%', height: '100%', backgroundColor: '#0e141b',
+                // TWEAK PADDING
+                padding: `${s(48)}px ${s(48)}px ${s(28)}px ${s(24)}px`,
+                boxSizing: 'border-box',
+                display: 'flex', flexDirection: 'column',
+            }}
+        >
             {/* Header: Back + History in a row */}
             <Focusable
                 flow-children="row"
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: s(12) }}
             >
                 <Focusable
                     onActivate={handleBack}
                     style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        padding: '6px 10px', backgroundColor: '#ffffff11',
-                        borderRadius: 6, cursor: 'pointer', border: '2px solid transparent',
+                        display: 'flex', alignItems: 'center', gap: s(6),
+                        padding: `${s(6)}px ${s(10)}px`,
+                        backgroundColor: '#ffffff11',
+                        borderRadius: s(6), cursor: 'pointer', border: '2px solid transparent',
                     }}
                     onFocus={(e: any) => (e.target.style.borderColor = 'white')}
                     onBlur={(e: any) => (e.target.style.borderColor = 'transparent')}
                 >
-                    <FaArrowLeft size={10} />
-                    <span style={{ fontSize: 11 }}>Back</span>
+                    <FaArrowLeft size={s(10)} />
+                    <span style={{ fontSize: s(11) }}>Back</span>
                 </Focusable>
-                <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>Spin the Wheel</span>
+                <span style={{ fontSize: s(14), fontWeight: 600, color: "#fff" }}>Spin the Wheel</span>
                 <Focusable
                     onActivate={() => navigateToHistory()}
                     style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        padding: '6px 10px', backgroundColor: '#ffffff11',
-                        borderRadius: 6, cursor: 'pointer', border: '2px solid transparent',
+                        display: 'flex', alignItems: 'center', gap: s(6),
+                        padding: `${s(6)}px ${s(10)}px`,
+                        backgroundColor: '#ffffff11',
+                        borderRadius: s(6), cursor: 'pointer', border: '2px solid transparent',
                     }}
                     onFocus={(e: any) => (e.target.style.borderColor = 'white')}
                     onBlur={(e: any) => (e.target.style.borderColor = 'transparent')}
                 >
-                    <FaHistory size={10} />
-                    <span style={{ fontSize: 11 }}>History</span>
+                    <FaHistory size={s(10)} />
+                    <span style={{ fontSize: s(11) }}>History</span>
                 </Focusable>
             </Focusable>
 
             {isLoading && (
                 <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <div style={{ color: '#888', fontSize: 14 }}>Loading candidates...</div>
+                    <div style={{ color: '#888', fontSize: s(14) }}>Loading candidates...</div>
                 </div>
             )}
 
             {error && (
                 <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <div style={{ color: '#ff6666', fontSize: 14 }}>{error}</div>
+                    <div style={{ color: '#ff6666', fontSize: s(14) }}>{error}</div>
                 </div>
             )}
 
             {/* PHASE 1: Before spin - centered large wheel + right panel */}
             {!isLoading && !error && !showWinner && (
                 <div style={{
-                    flex: 1, display: "flex", gap: 32,
+                    flex: 1, display: "flex", gap: s(32),
                     alignItems: "center", justifyContent: "center",
                 }}>
-                    {renderPointerAndWheel(WHEEL_SIZE_LARGE)}
+                    {renderPointerAndWheel(s(300))}
 
                     <div style={{
                         display: "flex", flexDirection: "column",
                         alignItems: "center", justifyContent: "center",
-                        gap: 16, maxWidth: 200,
+                        gap: s(16), maxWidth: s(200),
                     }}>
-                        <FaDice size={36} style={{ color: "#555", opacity: 0.6 }} />
-                        <div style={{ color: "#888", fontSize: 13, textAlign: "center", lineHeight: 1.5 }}>
+                        <FaDice size={s(36)} style={{ color: "#555", opacity: 0.6 }} />
+                        <div style={{ color: "#888", fontSize: s(13), textAlign: "center", lineHeight: 1.5 }}>
                             Spin the wheel to get a suggestion!
                         </div>
-                        <div style={{ color: "#666", fontSize: 10, textAlign: "center" }}>
-                            Flick the wheel or tap Spin
+                        <div style={{ color: "#666", fontSize: s(10), textAlign: "center" }}>
+                            Swipe the wheel or press Spin
                         </div>
                         <Focusable
                             onActivate={() => spinWheel(1)}
                             style={{
-                                width: 140, justifyContent: "center",
-                                padding: "12px 16px",
+                                width: s(140), justifyContent: "center",
+                                padding: `${s(12)}px ${s(16)}px`,
                                 backgroundColor: isSpinning ? "#666" : "#4488aa",
-                                borderRadius: 8, cursor: isSpinning ? "default" : "pointer",
+                                borderRadius: s(8), cursor: isSpinning ? "default" : "pointer",
                                 border: "2px solid transparent",
-                                display: "flex", alignItems: "center", gap: 8,
-                                opacity: isSpinning ? 0.6 : 1, marginTop: 4,
+                                display: "flex", alignItems: "center", gap: s(8),
+                                opacity: isSpinning ? 0.6 : 1, marginTop: s(4),
                             }}
                             onFocus={(e: any) => !isSpinning && (e.target.style.borderColor = "white")}
                             onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                         >
-                            <FaPlay size={14} style={{ color: "#fff" }} />
-                            <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>
+                            <FaPlay size={s(14)} style={{ color: "#fff" }} />
+                            <span style={{ color: "#fff", fontSize: s(14), fontWeight: 600 }}>
                                 {isSpinning ? "Spinning..." : "Spin!"}
                             </span>
                         </Focusable>
-                        <div style={{ fontSize: 10, color: "#555" }}>
+                        <div style={{ fontSize: s(10), color: "#555" }}>
                             {initialCandidatesCount} games in the pool
                         </div>
                         <Focusable
                             onActivate={() => setSpinWheelSilent(!isSilent)}
                             style={{
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                gap: 6, marginTop: 8, padding: '5px 10px',
+                                gap: s(6), marginTop: s(8), padding: `${s(5)}px ${s(10)}px`,
                                 backgroundColor: isSilent ? '#ffffff08' : '#aa884422',
-                                borderRadius: 5, cursor: 'pointer', border: '2px solid transparent',
+                                borderRadius: s(5), cursor: 'pointer', border: '2px solid transparent',
                             }}
                             onFocus={(e: any) => e.target.style.borderColor = 'white'}
                             onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                         >
-                            {isSilent ? <FaVolumeMute size={10} style={{ color: '#666' }} /> : <FaVolumeUp size={10} style={{ color: '#aa8844' }} />}
-                            <span style={{ fontSize: 9, color: isSilent ? '#666' : '#aa8844' }}>
+                            {isSilent ? <FaVolumeMute size={s(10)} style={{ color: '#666' }} /> : <FaVolumeUp size={s(10)} style={{ color: '#aa8844' }} />}
+                            <span style={{ fontSize: s(9), color: isSilent ? '#666' : '#aa8844' }}>
                                 Sound {isSilent ? 'OFF' : 'ON'}
                             </span>
                         </Focusable>
@@ -484,28 +549,33 @@ export function SpinWheelPage() {
                 <Focusable
                     flow-children="row"
                     style={{
-                        flex: 1, display: "flex", gap: 20,
-                        alignItems: "flex-start",
+                        flex: 1, display: "flex", gap: s(20),
+                        alignItems: "center",
+                        marginTop: -s(4) 
                     }}
                 >
-                    {/* Left: smaller wheel + spin again */}
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        {renderPointerAndWheel(WHEEL_SIZE_SMALL)}
+                    {/* Left: smaller wheel + spin again - centered in available left space */}
+                    <div style={{ 
+                        flex: 1, display: "flex", flexDirection: "column", 
+                        alignItems: "center", justifyContent: "center", 
+                        gap: s(8) 
+                    }}>
+                        {renderPointerAndWheel(s(180))}
                         <Focusable
                             onActivate={handleSpinAgain}
                             style={{
-                                padding: "8px 20px",
-                                backgroundColor: "#4488aa", borderRadius: 6,
+                                padding: `${s(8)}px ${s(32)}px`,
+                                backgroundColor: "#4488aa", borderRadius: s(6),
                                 cursor: "pointer", border: "2px solid transparent",
-                                display: "flex", alignItems: "center", gap: 6,
+                                display: "flex", alignItems: "center", gap: s(6),
                             }}
                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                             onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                         >
-                            <FaRedo size={10} style={{ color: "#fff" }} />
-                            <span style={{ color: "#fff", fontSize: 11, fontWeight: 600 }}>Spin Again</span>
+                            <FaRedo size={s(10)} style={{ color: "#fff" }} />
+                            <span style={{ color: "#fff", fontSize: s(11), fontWeight: 600 }}>Spin Again</span>
                         </Focusable>
-                        <div style={{ fontSize: 9, color: "#555" }}>
+                        <div style={{ fontSize: s(9), color: "#555" }}>
                             {initialCandidatesCount} games
                         </div>
                     </div>
@@ -517,47 +587,51 @@ export function SpinWheelPage() {
                         const headerUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${effectiveAppId}/header.jpg`;
                         return (
                             <div style={{
-                                flex: 1, display: "flex", flexDirection: "column", gap: 10,
-                                background: "#1a1f2e", borderRadius: 10, padding: 12,
-                                overflow: "hidden", maxWidth: 520,
+                                display: "flex", flexDirection: "column", gap: s(10),
+                                background: "#1a1f2e", borderRadius: s(10), padding: s(12),
+                                overflow: "hidden", 
+                                width: "100%", 
+                                // TWEAK CARD SIZE
+                                maxWidth: s(480), 
+                                marginLeft: "auto",
                             }}>
-                                {/* Header image*/}
+                                {/* Header image - maintain perfect aspect ratio */}
                                 <div style={{
                                     width: "100%",
                                     aspectRatio: "460 / 215",
                                     backgroundImage: `url(${headerUrl})`,
                                     backgroundSize: "cover", backgroundPosition: "center",
-                                    borderRadius: 8,
+                                    borderRadius: s(8),
                                 }} />
 
                                 {/* Game info row */}
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: s(12) }}>
                                     <div style={{ flex: 1 }}>
-                                        <div style={{ fontSize: 16, fontWeight: "bold", color: "white", marginBottom: 6 }}>
+                                        <div style={{ fontSize: s(16), fontWeight: "bold", color: "white", marginBottom: s(6) }}>
                                             {game.name}
                                             {game.is_non_steam && (
-                                                <span style={{ marginLeft: 8, fontSize: 10, color: "#6688aa", fontWeight: 400 }}>(Non-Steam)</span>
+                                                <span style={{ marginLeft: s(8), fontSize: s(10), color: "#6688aa", fontWeight: 400 }}>(Non-Steam)</span>
                                             )}
                                         </div>
-                                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                                        <div style={{ display: "flex", gap: s(6), flexWrap: "wrap", marginBottom: s(6) }}>
                                             {game.genres.slice(0, 4).map((genre) => (
                                                 <span key={genre} style={{
                                                     background: "var(--gpColor-Blue)", color: "white",
-                                                    padding: "2px 8px", borderRadius: 4, fontSize: 10,
+                                                    padding: `${s(2)}px ${s(8)}px`, borderRadius: s(4), fontSize: s(10),
                                                 }}>
                                                     {genre}
                                                 </span>
                                             ))}
                                         </div>
-                                        <div style={{ display: "flex", gap: 16, fontSize: 11, color: "#aaa" }}>
-                                            <span><FaGamepad style={{ marginRight: 4 }} />{formatPlaytime(game.playtime_forever)}</span>
+                                        <div style={{ display: "flex", gap: s(16), fontSize: s(11), color: "#aaa" }}>
+                                            <span><FaGamepad style={{ marginRight: s(4) }} />{formatPlaytime(game.playtime_forever)}</span>
                                             <span>Last: {formatLastPlayed(game.rtime_last_played)}</span>
                                         </div>
                                     </div>
                                     {(game.steam_review_description || game.metacritic_score > 0) && (
-                                        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", fontSize: 11, color: "#aaa" }}>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: s(4), alignItems: "flex-end", fontSize: s(11), color: "#aaa" }}>
                                             {game.steam_review_description && (
-                                                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                                <span style={{ display: "flex", alignItems: "center", gap: s(4) }}>
                                                     <FaStar style={{ color: "#ffcc00" }} />
                                                     {game.steam_review_description}
                                                 </span>
@@ -565,8 +639,8 @@ export function SpinWheelPage() {
                                             {game.metacritic_score > 0 && (
                                                 <span style={{
                                                     background: game.metacritic_score >= 75 ? "#66cc33" : game.metacritic_score >= 50 ? "#ffcc33" : "#ff6666",
-                                                    color: "#000", padding: "2px 6px", borderRadius: 3,
-                                                    fontWeight: "bold", fontSize: 10,
+                                                    color: "#000", padding: `${s(2)}px ${s(6)}px`, borderRadius: s(3),
+                                                    fontWeight: "bold", fontSize: s(10),
                                                 }}>
                                                     {game.metacritic_score}
                                                 </span>
@@ -578,21 +652,21 @@ export function SpinWheelPage() {
                                 {/* Action buttons */}
                                 <Focusable
                                     flow-children="row"
-                                    style={{ display: "flex", gap: 8, marginTop: 4 }}
+                                    style={{ display: "flex", gap: s(8), marginTop: s(4) }}
                                 >
                                     <Focusable
                                         onActivate={handleLaunchGame}
                                         style={{
                                             flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                                            gap: 6, padding: "10px 8px",
-                                            backgroundColor: "#4488aa", borderRadius: 6,
+                                            gap: s(6), padding: `${s(10)}px ${s(8)}px`,
+                                            backgroundColor: "#4488aa", borderRadius: s(6),
                                             border: "2px solid transparent", cursor: "pointer",
                                         }}
                                         onFocus={(e: any) => (e.target.style.borderColor = "white")}
                                         onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                                     >
-                                        <FaExternalLinkAlt size={11} style={{ color: "#fff", flexShrink: 0 }} />
-                                        <span style={{ fontSize: 11, color: "#fff", whiteSpace: "nowrap" }}>View Game</span>
+                                        <FaExternalLinkAlt size={s(11)} style={{ color: "#fff", flexShrink: 0 }} />
+                                        <span style={{ fontSize: s(11), color: "#fff", whiteSpace: "nowrap" }}>View Game</span>
                                     </Focusable>
 
                                     {((!payload.winner.is_non_steam) || (payload.winner.is_non_steam && payload.winner.matched_appid)) && (
@@ -605,15 +679,15 @@ export function SpinWheelPage() {
                                             }}
                                             style={{
                                                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                                                gap: 6, padding: "10px 8px",
-                                                backgroundColor: "#ffffff11", borderRadius: 6,
+                                                gap: s(6), padding: `${s(10)}px ${s(8)}px`,
+                                                backgroundColor: "#ffffff11", borderRadius: s(6),
                                                 border: "2px solid transparent", cursor: "pointer",
                                             }}
                                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                                             onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                                         >
-                                            <FaStore size={11} style={{ color: "#aaa", flexShrink: 0 }} />
-                                            <span style={{ fontSize: 11, color: "#aaa", whiteSpace: "nowrap" }}>Store Page</span>
+                                            <FaStore size={s(11)} style={{ color: "#aaa", flexShrink: 0 }} />
+                                            <span style={{ fontSize: s(11), color: "#aaa", whiteSpace: "nowrap" }}>Store Page</span>
                                         </Focusable>
                                     )}
 
@@ -621,15 +695,15 @@ export function SpinWheelPage() {
                                         onActivate={currentGameInPlayNext && !justAddedToPlayNext ? handleRemoveFromPlayNext : handleAddToPlayNext}
                                         style={{
                                             flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            gap: 6, padding: '10px 8px',
+                                            gap: s(6), padding: `${s(10)}px ${s(8)}px`,
                                             backgroundColor: justAddedToPlayNext ? '#88ff8833' : (currentGameInPlayNext ? '#88aa8833' : '#ffffff11'),
-                                            borderRadius: 6, border: '2px solid transparent', cursor: 'pointer',
+                                            borderRadius: s(6), border: '2px solid transparent', cursor: 'pointer',
                                         }}
                                         onFocus={(e: any) => e.target.style.borderColor = 'white'}
                                         onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                                     >
-                                        <FaListUl size={11} style={{ color: justAddedToPlayNext ? '#88ff88' : (currentGameInPlayNext ? '#88aa88' : '#888'), flexShrink: 0 }} />
-                                        <span style={{ fontSize: 11, color: justAddedToPlayNext ? '#88ff88' : (currentGameInPlayNext ? '#88aa88' : '#aaa'), whiteSpace: 'nowrap' }}>
+                                        <FaListUl size={s(11)} style={{ color: justAddedToPlayNext ? '#88ff88' : (currentGameInPlayNext ? '#88aa88' : '#888'), flexShrink: 0 }} />
+                                        <span style={{ fontSize: s(11), color: justAddedToPlayNext ? '#88ff88' : (currentGameInPlayNext ? '#88aa88' : '#aaa'), whiteSpace: 'nowrap' }}>
                                             {justAddedToPlayNext ? 'Added!' : (currentGameInPlayNext ? 'Remove' : 'Play Next')}
                                         </span>
                                     </Focusable>
@@ -638,15 +712,15 @@ export function SpinWheelPage() {
                                         onActivate={handleExcludeGame}
                                         style={{
                                             flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            gap: 6, padding: '10px 8px',
+                                            gap: s(6), padding: `${s(10)}px ${s(8)}px`,
                                             backgroundColor: confirmingExclude ? '#ff666644' : '#ff666622',
-                                            borderRadius: 6, border: '2px solid transparent', cursor: 'pointer',
+                                            borderRadius: s(6), border: '2px solid transparent', cursor: 'pointer',
                                         }}
                                         onFocus={(e: any) => e.target.style.borderColor = 'white'}
                                         onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                                     >
-                                        <FaBan size={11} style={{ color: '#ff6666', flexShrink: 0 }} />
-                                        <span style={{ fontSize: 11, color: '#ff6666', whiteSpace: 'nowrap' }}>
+                                        <FaBan size={s(11)} style={{ color: '#ff6666', flexShrink: 0 }} />
+                                        <span style={{ fontSize: s(11), color: '#ff6666', whiteSpace: 'nowrap' }}>
                                             {confirmingExclude ? 'Confirm' : 'Never Show'}
                                         </span>
                                     </Focusable>

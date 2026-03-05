@@ -19,28 +19,13 @@ declare const appStore: {
   allApps: { appid: number; local_per_client_data?: { installed?: boolean } }[];
 };
 
-function getInstalledAppIds(): number[] {
-  try {
-    if (typeof appStore !== 'undefined' && appStore.allApps) {
-      const installed: number[] = [];
-      for (const app of appStore.allApps) {
-        if (app.local_per_client_data?.installed) {
-          installed.push(app.appid);
-        }
-      }
-      return installed;
-    }
-  } catch (e) {
-    logger.error("[SuggestMe] Failed to get installed apps:", e);
-  }
-  return [];
-}
+const getInstalledAppIds = getInstalledAppIdsFromHook;
 
 import { FaMagic, FaCog, FaDice, FaCompass, FaBrain, FaLeaf, FaFilter, FaTimes, FaTrash, FaChevronRight, FaGamepad, FaSteam, FaListUl, FaBan } from "react-icons/fa";
 import { call } from "@decky/api";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { useLibraryStatus } from "../hooks/useLibraryStatus";
-import { useSuggestion } from "../hooks/useSuggestion";
+import { useSuggestion, getInstalledAppIds as getInstalledAppIdsFromHook, getCollectionAppIds } from "../hooks/useSuggestion";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { useFilterPresets } from "../hooks/useFilterPresets";
@@ -129,7 +114,7 @@ export function SuggestMeRoot() {
   const { requestSuggestion, clearCurrentSuggestion } =
     useSuggestion();
   const { count: playNextCount, addGame: addToPlayNext, removeGame: removeFromPlayNext, isInList: isInPlayNext } = usePlayNext();
-  const { excludeGame, count: excludedCount } = useExcludedGames();
+  const { excludeGame } = useExcludedGames();
   const { presets, activeIndex, getActivePreset, setActive, savePreset } = useFilterPresets();
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -245,7 +230,14 @@ export function SuggestMeRoot() {
     }
     try {
       const installedAppIds = getInstalledAppIds();
-      const result = await call<[object, number[]], { count: number; excluded_count: number }>("get_candidates_count", filters, installedAppIds);
+      const enhancedFilters = { ...filters };
+      if (filters.include_collections?.length) {
+        enhancedFilters.include_collection_appids = getCollectionAppIds(filters.include_collections);
+      }
+      if (filters.exclude_collections?.length) {
+        enhancedFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
+      }
+      const result = await call<[object, number[]], { count: number; excluded_count: number }>("get_candidates_count", enhancedFilters, installedAppIds);
       if (result) setCandidatesCount({ candidates: result.count, excluded: result.excluded_count });
     } catch (e) {
       logger.error("[SuggestMe] Failed to get candidates count:", e);
@@ -495,7 +487,7 @@ export function SuggestMeRoot() {
               justifyContent: 'center',
               gap: 4,
               padding: 6,
-              backgroundColor: (excludedCount || 0) > 0 ? '#ff666622' : '#ffffff08',
+              backgroundColor: (candidatesCount?.excluded || 0) > 0 ? '#ff666622' : '#ffffff08',
               borderRadius: 10,
               border: '2px solid transparent',
               cursor: 'pointer',
@@ -506,13 +498,13 @@ export function SuggestMeRoot() {
               e.target.style.borderColor = 'white';
             }}
             onBlur={(e: any) => {
-              e.target.style.backgroundColor = (excludedCount || 0) > 0 ? '#ff666622' : '#ffffff08';
+              e.target.style.backgroundColor = (candidatesCount?.excluded || 0) > 0 ? '#ff666622' : '#ffffff08';
               e.target.style.borderColor = 'transparent';
             }}
           >
             <FaBan size={12} style={{ color: '#ff6666' }} />
-            {(excludedCount || 0) > 0 && (
-              <span style={{ fontSize: 10, color: '#ff6666', fontWeight: 600 }}>{excludedCount}</span>
+            {(candidatesCount?.excluded || 0) > 0 && (
+              <span style={{ fontSize: 10, color: '#ff6666', fontWeight: 600 }}>{candidatesCount?.excluded}</span>
             )}
           </Focusable>
 
@@ -839,8 +831,15 @@ export function SuggestMeRoot() {
                 <ButtonItem
                   layout="below"
                   onClick={activeTab === 'luck' && spinWheelEnabled ? () => {
+                    const spinFilters = { ...filters };
+                    if (filters.include_collections?.length) {
+                      spinFilters.include_collection_appids = getCollectionAppIds(filters.include_collections);
+                    }
+                    if (filters.exclude_collections?.length) {
+                      spinFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
+                    }
                     navigateToSpinWheel(
-                      filters,
+                      spinFilters,
                       getInstalledAppIds(),
                       (activePreset && presetMatchesFilters) ? activePreset.label : undefined,
                       (winner) => {
