@@ -22,15 +22,15 @@ interface NonSteamProgress {
     name: string;
 }
 
-const GameItem = ({ 
-    game, 
-    onResync, 
+const GameItem = ({
+    game,
+    onResync,
     onRemove,
     onUpdateSearchTerm,
-    isSyncing 
-}: { 
-    game: Game; 
-    onResync: () => void; 
+    isSyncing
+}: {
+    game: Game;
+    onResync: () => void;
     onRemove: () => void;
     onUpdateSearchTerm: (newTerm: string) => Promise<void>;
     isSyncing: boolean;
@@ -114,7 +114,7 @@ const GameItem = ({
             </Focusable>
         );
     }
-    
+
     return (
         <Focusable
             flow-children="row"
@@ -156,10 +156,10 @@ const GameItem = ({
                     />
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ 
-                        fontSize: 12, 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis', 
+                    <div style={{
+                        fontSize: 12,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         display: 'flex',
                         alignItems: 'center',
@@ -209,7 +209,7 @@ const GameItem = ({
             >
                 <FaEdit size={12} />
             </Focusable>
-            
+
             <Focusable
                 onActivate={onResync}
                 onClick={onResync}
@@ -227,7 +227,7 @@ const GameItem = ({
             >
                 {isSyncing ? <Spinner style={{ width: 12, height: 12 }} /> : <FaSync size={12} />}
             </Focusable>
-            
+
             <Focusable
                 onActivate={onRemove}
                 onClick={onRemove}
@@ -323,8 +323,8 @@ export const NonSteamGamesPage = () => {
         setSyncingGame(originalName);
         try {
             const result = await call<[string, string], { success: boolean; error?: string }>(
-                "update_non_steam_search_term", 
-                originalName, 
+                "update_non_steam_search_term",
+                originalName,
                 newTerm
             );
             if (result.success) {
@@ -356,23 +356,24 @@ export const NonSteamGamesPage = () => {
     const unmatchedGames = (info?.games.filter(g => g.match_status !== 'matched') || []).sort((a, b) => (a.original_name || a.name).localeCompare(b.original_name || b.name));
 
     return (
-        <div ref={scrollRef} style={{ 
-            width: '100%', 
-            height: '100%', 
-            backgroundColor: '#0e141b',
-            padding: '16px 24px 80px 24px',
-            maxHeight: 'calc(100vh - 60px)',
-            overflowY: 'auto',
-            boxSizing: 'border-box'
-        }}>
-            <Focusable 
-                onActivate={() => {}}
+        <div ref={scrollRef} onFocus={(e: any) => (e.target.style.borderColor = "transparent")}
+            onBlur={(e: any) => (e.target.style.borderColor = "transparent")} style={{
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#0e141b',
+                padding: '16px 24px 80px 24px',
+                maxHeight: 'calc(100vh - 60px)',
+                overflowY: 'auto',
+                boxSizing: 'border-box'
+            }}>
+            <Focusable
+                onActivate={() => { }}
                 style={{ height: 80, width: '100%' }}
             >{null}</Focusable>
             <PanelSection title="Non-Steam Games">
                 <PanelSectionRow>
-                    <Focusable 
-                        onActivate={() => {}}
+                    <Focusable
+                        onActivate={() => { }}
                         onFocus={(e: any) => {
                             e.target.style.backgroundColor = '#4488aa33';
                             e.target.style.border = '2px solid white';
@@ -416,7 +417,7 @@ export const NonSteamGamesPage = () => {
 
                 <PanelSectionRow>
                     <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
-                        Non-Steam games are matched to their Steam Store counterparts to fetch metadata (genres, tags). 
+                        Non-Steam games are matched to their Steam Store counterparts to fetch metadata (genres, tags).
                         Matched games can be filtered and suggested just like regular Steam games.
                     </div>
                 </PanelSectionRow>

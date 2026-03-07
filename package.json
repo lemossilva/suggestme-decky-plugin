@@ -1,6 +1,6 @@
 {
   "name": "suggestme-decky-plugin",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Smart game suggestion from your Steam library, native to Steam Deck.",
   "type": "module",
   "scripts": {

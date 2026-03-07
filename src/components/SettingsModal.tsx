@@ -578,6 +578,12 @@ const GeneralSettingsPage = () => {
         }
     }, [config.date_format]);
 
+    useEffect(() => {
+        if (config.history_limit) {
+            setHistoryLimitState(config.history_limit);
+        }
+    }, [config.history_limit]);
+
     // Ensure a valid mode order with all modes present
     useEffect(() => {
         const defaultOrder: SuggestMode[] = ["luck", "guided", "intelligent", "fresh_air"];
@@ -971,7 +977,7 @@ const AboutPage = () => {
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
                         <div style={{ fontSize: 13, marginBottom: 8 }}>
-                            SuggestMe (v1.2.1) is a smart game recommender for your Steam library.
+                            SuggestMe (v1.2.2) is a smart game recommender for your Steam library.
                         </div>
                         <div style={{ fontSize: 12, color: '#888' }}>
                             By Guilherme Lemos

@@ -79,6 +79,7 @@ export interface SuggestionResult {
   candidates_count: number;
   excluded_count?: number;
   mode_used: SuggestMode;
+  reason?: string;
   error?: string;
 }
 
@@ -238,6 +239,16 @@ export interface SpinWheelPayload {
   candidates_count?: number;
   excluded_count?: number;
   error?: string;
+}
+
+export interface LibraryBreakdown {
+  genres: Record<string, number>;
+  unplayed_by_genre: Record<string, number>;
+  deck_status: Record<string, number>;
+  protondb_tier: Record<string, number>;
+  steam_reviews: Record<string, number>;
+  metacritic: Record<string, number>;
+  total: number;
 }
 
 export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {

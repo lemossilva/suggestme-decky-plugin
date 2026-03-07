@@ -1606,6 +1606,66 @@ class Plugin:
     def _get_mode_history_appids(self, mode: str) -> set[int]:
         return set(h.appid for h in self.history if h.mode == mode)
 
+    def _build_suggestion_reason(self, game: Game, mode: str, profile: dict = None) -> str:
+        if mode == SuggestMode.LUCK.value:
+            if game.playtime_forever == 0:
+                return "Random pick — unplayed games have higher chance."
+            return "Random pick from your filtered library."
+
+        if mode == SuggestMode.GUIDED.value:
+            hours = game.playtime_forever // 60
+            if game.playtime_forever == 0:
+                return "Backlog pick — you haven't played this yet."
+            elif hours < 1:
+                return f"Backlog pick — only {game.playtime_forever}m played."
+            else:
+                return f"Backlog pick — only {hours}h played, among your least played."
+
+        if mode == SuggestMode.INTELLIGENT.value and profile:
+            reasons = []
+            genre_profile = profile.get("genres", {})
+            matching_genres = [g for g in game.genres if genre_profile.get(g.lower(), 0) > 0.05]
+            if matching_genres:
+                top_genres = matching_genres[:2]
+                reasons.append(f"matches your {', '.join(top_genres)} preference")
+
+            if game.playtime_forever == 0:
+                reasons.append("unplayed")
+
+            if game.rtime_last_played:
+                days_since = int((time.time() - game.rtime_last_played) / 86400)
+                if days_since > 90:
+                    reasons.append(f"untouched for {days_since}+ days")
+
+            if game.steam_review_score >= 7:
+                reasons.append("well-reviewed")
+
+            if reasons:
+                return "Recommended: " + ", ".join(reasons) + "."
+            return "Recommended based on your gaming habits."
+
+        if mode == SuggestMode.FRESH_AIR.value and profile:
+            reasons = []
+            genre_profile = profile.get("genres", {})
+            game_genres = set(g.lower() for g in game.genres)
+            novel_genres = [g for g in game.genres if g.lower() not in genre_profile]
+
+            if novel_genres:
+                reasons.append(f"features {', '.join(novel_genres[:2])} — genres you rarely play")
+
+            if game.playtime_forever == 0:
+                reasons.append("never played")
+
+            low_overlap = all(genre_profile.get(g.lower(), 0) < 0.1 for g in game.genres)
+            if low_overlap and not novel_genres:
+                reasons.append("different from your usual picks")
+
+            if reasons:
+                return "Fresh pick: " + ", ".join(reasons) + "."
+            return "Something different from your recent habits."
+
+        return ""
+
     async def get_candidates_count(self, filters: dict, installed_appids: list[int] = None) -> dict:
         if not self.library_cache:
             return {"count": 0, "excluded_count": 0}
@@ -1656,6 +1716,7 @@ class Plugin:
             }
 
         selected_game: Optional[Game] = None
+        profile: dict = {}
 
         if mode == SuggestMode.GUIDED.value:
             sorted_candidates = sorted(fresh_candidates, key=lambda g: g.playtime_forever)
@@ -1702,11 +1763,16 @@ class Plugin:
         if selected_game:
             self._add_to_history(selected_game, mode, filters, preset_name)
 
+        reason = ""
+        if selected_game:
+            reason = self._build_suggestion_reason(selected_game, mode, profile)
+
         return {
             "game": selected_game.to_dict() if selected_game else None,
             "candidates_count": len(candidates),
             "excluded_count": excluded_count,
             "mode_used": mode,
+            "reason": reason,
             "error": None,
         }
 
@@ -1818,6 +1884,122 @@ class Plugin:
         if all(c in '() ' for c in stripped):
             return False
         return True
+
+    async def get_library_breakdown(self) -> dict:
+        if not self.library_cache:
+            return {
+                "genres": {},
+                "unplayed_by_genre": {},
+                "deck_status": {},
+                "protondb_tier": {},
+                "steam_reviews": {},
+                "metacritic": {},
+                "total": 0
+            }
+
+        genre_counts: dict[str, int] = {}
+        unplayed_by_genre: dict[str, int] = {}
+        deck_status_counts: dict[str, int] = {
+            "Verified": 0,
+            "Playable": 0,
+            "Unsupported": 0,
+            "Unknown": 0
+        }
+        protondb_counts: dict[str, int] = {
+            "Platinum": 0,
+            "Gold": 0,
+            "Silver": 0,
+            "Bronze": 0,
+            "Borked": 0,
+            "Unknown": 0
+        }
+        steam_review_counts: dict[str, int] = {
+            "Overwhelmingly Positive": 0,
+            "Very Positive": 0,
+            "Positive": 0,
+            "Mostly Positive": 0,
+            "Mixed": 0,
+            "Mostly Negative": 0,
+            "Negative": 0,
+            "Very Negative": 0,
+            "Overwhelmingly Negative": 0,
+            "No Reviews": 0
+        }
+        metacritic_counts: dict[str, int] = {
+            "90+": 0,
+            "80-89": 0,
+            "70-79": 0,
+            "60-69": 0,
+            "50-59": 0,
+            "Below 50": 0,
+            "No Score": 0
+        }
+
+        for game in self.library_cache:
+            for genre in game.genres:
+                if self._is_valid_label(genre):
+                    genre_counts[genre] = genre_counts.get(genre, 0) + 1
+                    if game.playtime_forever == 0:
+                        unplayed_by_genre[genre] = unplayed_by_genre.get(genre, 0) + 1
+
+            status = game.deck_status.strip().lower() if game.deck_status else ""
+            if status == "verified":
+                deck_status_counts["Verified"] += 1
+            elif status == "playable":
+                deck_status_counts["Playable"] += 1
+            elif status == "unsupported":
+                deck_status_counts["Unsupported"] += 1
+            else:
+                deck_status_counts["Unknown"] += 1
+
+            tier = game.protondb_tier.strip().lower() if game.protondb_tier else ""
+            if tier == "platinum":
+                protondb_counts["Platinum"] += 1
+            elif tier == "gold":
+                protondb_counts["Gold"] += 1
+            elif tier == "silver":
+                protondb_counts["Silver"] += 1
+            elif tier == "bronze":
+                protondb_counts["Bronze"] += 1
+            elif tier == "borked":
+                protondb_counts["Borked"] += 1
+            else:
+                protondb_counts["Unknown"] += 1
+
+            review_desc = game.steam_review_description.strip() if game.steam_review_description else ""
+            if review_desc in steam_review_counts:
+                steam_review_counts[review_desc] += 1
+            else:
+                steam_review_counts["No Reviews"] += 1
+
+            mc_score = game.metacritic_score
+            if mc_score >= 90:
+                metacritic_counts["90+"] += 1
+            elif mc_score >= 80:
+                metacritic_counts["80-89"] += 1
+            elif mc_score >= 70:
+                metacritic_counts["70-79"] += 1
+            elif mc_score >= 60:
+                metacritic_counts["60-69"] += 1
+            elif mc_score >= 50:
+                metacritic_counts["50-59"] += 1
+            elif mc_score > 0:
+                metacritic_counts["Below 50"] += 1
+            else:
+                metacritic_counts["No Score"] += 1
+
+        sorted_genres = dict(sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)[:10])
+        sorted_unplayed = {k: unplayed_by_genre.get(k, 0) for k in sorted_genres.keys()}
+
+        return {
+            "genres": sorted_genres,
+            "unplayed_by_genre": sorted_unplayed,
+            "deck_status": deck_status_counts,
+            "protondb_tier": protondb_counts,
+            "steam_reviews": steam_review_counts,
+            "metacritic": metacritic_counts,
+            "total": len(self.library_cache)
+        }
 
     async def get_available_genres(self) -> list[str]:
         genres: set[str] = set()

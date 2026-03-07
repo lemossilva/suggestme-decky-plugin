@@ -7,6 +7,7 @@ interface SuggestionCardProps {
   modeUsed: SuggestMode;
   candidatesCount: number;
   excludedCount?: number;
+  reason?: string;
   onReroll: () => void;
   onLaunch: () => void;
   onClear: () => void;
@@ -17,6 +18,7 @@ export function SuggestionCard({
   modeUsed,
   candidatesCount,
   excludedCount,
+  reason,
   onReroll,
   onLaunch,
   onClear,
@@ -150,11 +152,28 @@ export function SuggestionCard({
           style={{
             fontSize: "11px",
             color: "var(--gpSystemLightGrey)",
-            marginBottom: "12px",
+            marginBottom: reason ? "6px" : "12px",
           }}
         >
           {MODE_LABELS[modeUsed]} • {candidatesCount} candidates{excludedCount ? ` • ${excludedCount} excluded` : ''}
         </div>
+
+        {reason && (
+          <div
+            style={{
+              fontSize: "11px",
+              color: "#aabbcc",
+              fontStyle: "italic",
+              marginBottom: "12px",
+              padding: "6px 8px",
+              backgroundColor: "rgba(68, 136, 170, 0.15)",
+              borderRadius: "4px",
+              borderLeft: "2px solid #4488aa",
+            }}
+          >
+            {reason}
+          </div>
+        )}
 
         <PanelSectionRow>
           <ButtonItem layout="below" onClick={onLaunch}>

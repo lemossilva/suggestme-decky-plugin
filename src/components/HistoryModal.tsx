@@ -380,10 +380,12 @@ export const HistoryPage = () => {
             padding: '16px 24px 80px 24px',
             maxHeight: 'calc(100vh - 60px)',
             overflowY: 'auto',
-            boxSizing: 'border-box'
+            //boxSizing: 'border-box'
         }}>
             <Focusable 
                 onActivate={() => {}}
+                onFocus={(e: any) => (e.target.style.borderColor = "transparent")}
+                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                 style={{ height: 80, width: '100%' }}
             >{null}</Focusable>
             <PanelSection title="Suggestion History">

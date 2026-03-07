@@ -880,6 +880,7 @@ export function SuggestMeRoot() {
                   modeUsed={currentModeSuggestion.mode_used}
                   candidatesCount={currentModeSuggestion.candidates_count}
                   excludedCount={currentModeSuggestion.excluded_count}
+                  reason={currentModeSuggestion.reason}
                   onReroll={handleReroll}
                   onLaunch={handleLaunch}
                   onClear={handleClearSuggestion}

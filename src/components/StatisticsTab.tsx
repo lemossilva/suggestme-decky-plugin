@@ -8,7 +8,7 @@ import {
 } from "@decky/ui";
 import { call } from "@decky/api";
 import { FaSync, FaChevronRight, FaGamepad, FaSteam, FaCheck, FaExclamationTriangle } from "react-icons/fa";
-import { Game } from "../types";
+import { Game, LibraryBreakdown } from "../types";
 import { logger } from "../utils/logger";
 
 interface MetadataFieldStats {
@@ -64,7 +64,10 @@ const getSeverityBg = (percentage: number): string => {
 export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     const [games, setGames] = useState<Game[]>([]);
     const [stats, setStats] = useState<LibraryStats | null>(null);
+    const [breakdown, setBreakdown] = useState<LibraryBreakdown | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [showProtonDB, setShowProtonDB] = useState(false);
+    const [showMetacritic, setShowMetacritic] = useState(false);
 
     const computeStats = useCallback((gameList: Game[]): LibraryStats => {
         const total = gameList.length;
@@ -88,7 +91,7 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
 
         const keyFields = ["genres", "tags", "deck_status", "steam_review_score"];
         const keyChecks = TRACKED_FIELDS.filter(f => keyFields.includes(f.field));
-        
+
         let fullyEnriched = 0;
         let partiallyEnriched = 0;
         let bareMinimum = 0;
@@ -131,9 +134,19 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
         }
     }, [computeStats]);
 
+    const loadBreakdown = useCallback(async () => {
+        try {
+            const result = await call<[], LibraryBreakdown>("get_library_breakdown");
+            setBreakdown(result);
+        } catch (e) {
+            logger.error("[SuggestMe] Failed to load library breakdown:", e);
+        }
+    }, []);
+
     useEffect(() => {
         loadGames();
-    }, [loadGames]);
+        loadBreakdown();
+    }, [loadGames, loadBreakdown]);
 
     const handleViewEmptyGames = (fieldDef: typeof TRACKED_FIELDS[0]) => {
         const emptyGames = games.filter(g => !fieldDef.checkFn(g));
@@ -161,7 +174,7 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     }
 
     return (
-        <div style={{ padding: "16px 24px 80px 24px", maxHeight: "calc(100vh - 60px)", overflowY: "auto" }}>
+        <div style={{ padding: "16px 28px 80px 28px", maxHeight: "calc(100vh - 60px)", overflowY: "auto" }}>
             <PanelSection>
                 <PanelSectionRow>
                     <Focusable
@@ -317,26 +330,212 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
             </PanelSection>
 
             <PanelSection title="Enrichment Summary">
-                <PanelSectionRow>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#88ff88" }} />
-                            <span style={{ fontSize: 12, flex: 1 }}>Fully Enriched</span>
-                            <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.fullyEnriched}</span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#ffaa00" }} />
-                            <span style={{ fontSize: 12, flex: 1 }}>Partially Enriched</span>
-                            <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.partiallyEnriched}</span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#ff6666" }} />
-                            <span style={{ fontSize: 12, flex: 1 }}>Bare Minimum</span>
-                            <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.bareMinimum}</span>
-                        </div>
-                    </div>
+                <PanelSectionRow key="fully-enriched">
+                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px" }}>
+                        <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#88ff88" }} />
+                        <span style={{ fontSize: 12, flex: 1 }}>Fully Enriched</span>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.fullyEnriched}</span>
+                    </Focusable>
+                </PanelSectionRow>
+                <PanelSectionRow key="partially-enriched">
+                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px" }}>
+                        <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#ffaa00" }} />
+                        <span style={{ fontSize: 12, flex: 1 }}>Partially Enriched</span>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.partiallyEnriched}</span>
+                    </Focusable>
+                </PanelSectionRow>
+                <PanelSectionRow key="bare-minimum">
+                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px" }}>
+                        <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#ff6666" }} />
+                        <span style={{ fontSize: 12, flex: 1 }}>Bare Minimum</span>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.bareMinimum}</span>
+                    </Focusable>
                 </PanelSectionRow>
             </PanelSection>
+
+            {breakdown && breakdown.total > 0 && (
+                <>
+                    <PanelSection title="Genre Distribution">
+                        {Object.entries(breakdown.genres).map(([genre, count]) => {
+                            const maxCount = Math.max(...Object.values(breakdown.genres));
+                            const percentage = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                            const unplayed = breakdown.unplayed_by_genre[genre] || 0;
+                            return (
+                                <PanelSectionRow key={genre}>
+                                    <Focusable
+                                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                        onActivate={() => {}}
+                                        style={{
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            gap: 3,
+                                            width: "100%",
+                                            padding: "8px",
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                                            <span style={{ color: "#ddd" }}>{genre}</span>
+                                            <span style={{ color: "#888" }}>
+                                                {count} {unplayed > 0 && <span style={{ color: "#ffaa00" }}>({unplayed} unplayed)</span>}
+                                            </span>
+                                        </div>
+                                        <div style={{ height: 8, backgroundColor: "#ffffff11", borderRadius: 4, overflow: "hidden" }}>
+                                            <div
+                                                style={{
+                                                    width: `${percentage}%`,
+                                                    height: "100%",
+                                                    backgroundColor: "#4488aa",
+                                                    borderRadius: 4,
+                                                }}
+                                            />
+                                        </div>
+                                    </Focusable>
+                                </PanelSectionRow>
+                            );
+                        })}
+                    </PanelSection>
+
+                    <PanelSection title={showProtonDB ? "ProtonDB Ratings" : "Deck Compatibility"}>
+                        <PanelSectionRow>
+                            <Focusable
+                                onActivate={() => setShowProtonDB(!showProtonDB)}
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 6,
+                                    padding: "8px 12px",
+                                    backgroundColor: "#ffffff11",
+                                    borderRadius: 6,
+                                    cursor: "pointer",
+                                    border: "2px solid transparent",
+                                    marginBottom: 8,
+                                }}
+                                onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                            >
+                                <span style={{ fontSize: 11, color: "#aaa" }}>
+                                    {showProtonDB ? "Show Deck Verified" : "Show ProtonDB"}
+                                </span>
+                            </Focusable>
+                        </PanelSectionRow>
+                        {(showProtonDB ? [
+                            { key: "Platinum", color: "#b4c7dc", label: "Platinum" },
+                            { key: "Gold", color: "#cfb53b", label: "Gold" },
+                            { key: "Silver", color: "#a8a8a8", label: "Silver" },
+                            { key: "Bronze", color: "#cd7f32", label: "Bronze" },
+                            { key: "Borked", color: "#ff4444", label: "Borked" },
+                            { key: "Unknown", color: "#666666", label: "Unknown" },
+                        ] : [
+                            { key: "Verified", color: "#88ff88", label: "Verified" },
+                            { key: "Playable", color: "#ffcc00", label: "Playable" },
+                            { key: "Unsupported", color: "#ff6666", label: "Unsupported" },
+                            { key: "Unknown", color: "#888888", label: "Unknown" },
+                        ]).map(({ key, color, label }) => {
+                            const source = showProtonDB ? breakdown.protondb_tier : breakdown.deck_status;
+                            const count = source[key] || 0;
+                            const percentage = breakdown.total > 0 ? (count / breakdown.total) * 100 : 0;
+                            return (
+                                <PanelSectionRow key={key}>
+                                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", flexDirection: "column", gap: 3, width: "100%", padding: "8px" }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                                            <span style={{ color }}>{label}</span>
+                                            <span style={{ color: "#888" }}>{count} ({Math.round(percentage)}%)</span>
+                                        </div>
+                                        <div style={{ height: 8, backgroundColor: "#ffffff11", borderRadius: 4, overflow: "hidden" }}>
+                                            <div
+                                                style={{
+                                                    width: `${percentage}%`,
+                                                    height: "100%",
+                                                    backgroundColor: color,
+                                                    borderRadius: 4,
+                                                }}
+                                            />
+                                        </div>
+                                    </Focusable>
+                                </PanelSectionRow>
+                            );
+                        })}
+                    </PanelSection>
+
+                    <PanelSection title={showMetacritic ? "Metacritic Scores" : "Steam Reviews"}>
+                        <PanelSectionRow>
+                            <Focusable
+                                onActivate={() => setShowMetacritic(!showMetacritic)}
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 6,
+                                    padding: "8px 12px",
+                                    backgroundColor: "#ffffff11",
+                                    borderRadius: 6,
+                                    cursor: "pointer",
+                                    border: "2px solid transparent",
+                                    marginBottom: 8,
+                                }}
+                                onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                            >
+                                <span style={{ fontSize: 11, color: "#aaa" }}>
+                                    {showMetacritic ? "Show Steam Reviews" : "Show Metacritic"}
+                                </span>
+                            </Focusable>
+                        </PanelSectionRow>
+                        {(showMetacritic ? [
+                            { key: "90+", color: "#66cc33", label: "90+" },
+                            { key: "80-89", color: "#88cc44", label: "80-89" },
+                            { key: "70-79", color: "#aacc55", label: "70-79" },
+                            { key: "60-69", color: "#cccc66", label: "60-69" },
+                            { key: "50-59", color: "#cc9944", label: "50-59" },
+                            { key: "Below 50", color: "#cc6644", label: "Below 50" },
+                            { key: "No Score", color: "#666666", label: "No Score" },
+                        ] : [
+                            { key: "Overwhelmingly Positive", color: "#66ccff", label: "Overwhelmingly Positive" },
+                            { key: "Very Positive", color: "#88ddff", label: "Very Positive" },
+                            { key: "Positive", color: "#88ff88", label: "Positive" },
+                            { key: "Mostly Positive", color: "#aaff88", label: "Mostly Positive" },
+                            { key: "Mixed", color: "#ffcc66", label: "Mixed" },
+                            { key: "Mostly Negative", color: "#ffaa66", label: "Mostly Negative" },
+                            { key: "Negative", color: "#ff8866", label: "Negative" },
+                            { key: "Very Negative", color: "#ff6666", label: "Very Negative" },
+                            { key: "Overwhelmingly Negative", color: "#ff4444", label: "Overwhelmingly Negative" },
+                            { key: "No Reviews", color: "#666666", label: "No Reviews" },
+                        ]).map(({ key, color, label }) => {
+                            const source = showMetacritic ? breakdown.metacritic : breakdown.steam_reviews;
+                            const count = source[key] || 0;
+                            const percentage = breakdown.total > 0 ? (count / breakdown.total) * 100 : 0;
+                            if (count === 0) return null;
+                            return (
+                                <PanelSectionRow key={key}>
+                                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", flexDirection: "column", gap: 3, width: "100%", padding: "8px" }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                                            <span style={{ color }}>{label}</span>
+                                            <span style={{ color: "#888" }}>{count} ({Math.round(percentage)}%)</span>
+                                        </div>
+                                        <div style={{ height: 8, backgroundColor: "#ffffff11", borderRadius: 4, overflow: "hidden" }}>
+                                            <div
+                                                style={{
+                                                    width: `${percentage}%`,
+                                                    height: "100%",
+                                                    backgroundColor: color,
+                                                    borderRadius: 4,
+                                                }}
+                                            />
+                                        </div>
+                                    </Focusable>
+                                </PanelSectionRow>
+                            );
+                        })}
+                    </PanelSection>
+                </>
+            )}
         </div>
     );
 }

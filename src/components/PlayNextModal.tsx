@@ -14,12 +14,12 @@ import { logger } from "../utils/logger";
 
 export const PLAY_NEXT_ROUTE = '/suggestme/play-next';
 
-const GameItem = ({ 
-    game, 
+const GameItem = ({
+    game,
     onRemove,
     isRemoving
-}: { 
-    game: PlayNextEntry; 
+}: {
+    game: PlayNextEntry;
     onRemove: () => void;
     isRemoving: boolean;
 }) => {
@@ -63,10 +63,10 @@ const GameItem = ({
                     onError={(e: any) => e.target.style.display = 'none'}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ 
-                        fontSize: 12, 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis', 
+                    <div style={{
+                        fontSize: 12,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         display: 'flex',
                         alignItems: 'center',
@@ -78,7 +78,7 @@ const GameItem = ({
                         )}
                     </div>
                     <div style={{ fontSize: 10, color: '#888' }}>
-                        {game.playtime_forever > 0 
+                        {game.playtime_forever > 0
                             ? `${Math.floor(game.playtime_forever / 60)}h played`
                             : 'Never played'}
                     </div>
@@ -164,7 +164,7 @@ export const PlayNextPage = () => {
         try {
             const collectionName = "Play Next";
             const appids = games.map(g => g.appid);
-            
+
             if (appids.length === 0) {
                 toaster.toast({
                     title: "SuggestMe • Sync Failed",
@@ -177,7 +177,7 @@ export const PlayNextPage = () => {
 
             const collectionStore = (window as any).collectionStore;
             const appStore = (window as any).appStore;
-            
+
             if (!collectionStore || !appStore) {
                 toaster.toast({
                     title: "SuggestMe • Sync Failed",
@@ -216,7 +216,7 @@ export const PlayNextPage = () => {
             if (collection && collection.AsDragDropCollection) {
                 const currentCollectionAppIds: number[] = Array.from(collection.apps?.keys?.() || []);
                 const listAppIds = new Set(appids);
-                
+
                 const toRemove = currentCollectionAppIds.filter(id => !listAppIds.has(id));
                 if (toRemove.length > 0) {
                     const removeOverviews = toRemove
@@ -229,7 +229,7 @@ export const PlayNextPage = () => {
 
                 collection.AsDragDropCollection().AddApps(overviews);
                 await collection.Save();
-                
+
                 const removed = toRemove.length;
                 const added = overviews.length;
                 let msg = `Collection synced with ${added} game${added !== 1 ? 's' : ''}`;
@@ -265,17 +265,18 @@ export const PlayNextPage = () => {
     }
 
     return (
-        <div ref={scrollRef} style={{ 
-            width: '100%', 
-            height: '100%', 
-            backgroundColor: '#0e141b',
-            padding: '16px 24px 80px 24px',
-            maxHeight: 'calc(100vh - 60px)',
-            overflowY: 'auto',
-            boxSizing: 'border-box'
-        }}>
-            <Focusable 
-                onActivate={() => {}}
+        <div ref={scrollRef} onFocus={(e: any) => (e.target.style.borderColor = "transparent")}
+            onBlur={(e: any) => (e.target.style.borderColor = "transparent")} style={{
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#0e141b',
+                padding: '16px 24px 80px 24px',
+                maxHeight: 'calc(100vh - 60px)',
+                overflowY: 'auto',
+                boxSizing: 'border-box'
+            }}>
+            <Focusable
+                onActivate={() => { }}
                 style={{ height: 80, width: '100%' }}
             >{null}</Focusable>
             <PanelSection title="Play Next">
@@ -349,8 +350,8 @@ export const PlayNextPage = () => {
             {games.length === 0 && (
                 <PanelSection>
                     <PanelSectionRow>
-                        <Focusable 
-                            onActivate={() => {}}
+                        <Focusable
+                            onActivate={() => { }}
                             style={{
                                 textAlign: 'center',
                                 padding: '24px',
