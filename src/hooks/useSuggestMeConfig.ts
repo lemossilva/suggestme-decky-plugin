@@ -50,7 +50,7 @@ export function useSuggestMeConfig() {
     async (apiKey: string, steamId: string): Promise<boolean> => {
       try {
         const result = await call<[string, string], { success: boolean }>(
-          "set_steam_credentials",
+          "save_steam_credentials",
           apiKey,
           steamId
         );

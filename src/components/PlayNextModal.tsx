@@ -24,7 +24,7 @@ const GameItem = ({
     isRemoving: boolean;
 }) => {
     const [focused, setFocused] = useState(false);
-    const effectiveAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
+    const imageAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
 
     return (
         <Focusable
@@ -39,7 +39,7 @@ const GameItem = ({
             <Focusable
                 onActivate={() => {
                     Navigation.NavigateToLibraryTab();
-                    Navigation.Navigate(`/library/app/${effectiveAppId}`);
+                    Navigation.Navigate(`/library/app/${game.appid}`);
                 }}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
@@ -57,7 +57,7 @@ const GameItem = ({
                 }}
             >
                 <img
-                    src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/capsule_184x69.jpg`}
+                    src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${imageAppId}/capsule_184x69.jpg`}
                     alt=""
                     style={{ width: 46, height: 17, borderRadius: 2, objectFit: 'cover' }}
                     onError={(e: any) => e.target.style.display = 'none'}

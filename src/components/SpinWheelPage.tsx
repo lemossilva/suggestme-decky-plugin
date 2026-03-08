@@ -258,11 +258,9 @@ export function SpinWheelPage() {
 
     const handleLaunchGame = () => {
         if (payload?.winner) {
-            const effectiveAppId = payload.winner.is_non_steam && payload.winner.matched_appid
-                ? payload.winner.matched_appid
-                : payload.winner.appid;
+            const appid = payload.winner.appid;
             Navigation.NavigateToLibraryTab();
-            Navigation.Navigate(`/library/app/${effectiveAppId}`);
+            Navigation.Navigate(`/library/app/${appid}`);
         }
     };
 

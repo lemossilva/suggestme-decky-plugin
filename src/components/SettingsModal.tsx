@@ -719,6 +719,78 @@ const GeneralSettingsPage = () => {
     );
 };
 
+const SyncNewGamesButton = ({ disabled, onComplete }: { disabled: boolean; onComplete: () => void }) => {
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    const handleSyncNewGames = async () => {
+        setIsSyncing(true);
+        try {
+            const result = await call<[], {
+                success: boolean;
+                new_steam_count?: number;
+                new_non_steam_count?: number;
+                new_non_steam_matched?: number;
+                error?: string;
+            }>("sync_new_games");
+
+            if (result?.success) {
+                const newSteam = result.new_steam_count || 0;
+                const newNonSteam = result.new_non_steam_count || 0;
+                const matched = result.new_non_steam_matched || 0;
+
+                if (newSteam === 0 && newNonSteam === 0) {
+                    toaster.toast({
+                        title: "SuggestMe • No New Games",
+                        body: "Your library is already up to date",
+                        duration: 3000,
+                    });
+                } else {
+                    toaster.toast({
+                        title: "SuggestMe • Sync Complete",
+                        body: `Added ${newSteam} Steam + ${newNonSteam} Non-Steam (${matched} matched)`,
+                        duration: 4000,
+                    });
+                }
+                onComplete();
+            } else {
+                toaster.toast({
+                    title: "SuggestMe • Sync Failed",
+                    body: result?.error || "Unknown error",
+                    duration: 5000,
+                });
+            }
+        } catch (e) {
+            logger.error("[SuggestMe] Sync new games failed:", e);
+            toaster.toast({
+                title: "SuggestMe • Sync Failed",
+                body: "Failed to sync new games",
+                duration: 5000,
+            });
+        }
+        setIsSyncing(false);
+    };
+
+    return (
+        <ButtonItem
+            layout="below"
+            onClick={handleSyncNewGames}
+            disabled={disabled || isSyncing}
+        >
+            {isSyncing ? (
+                <>
+                    <Spinner style={{ marginRight: 8, width: 16, height: 16 }} />
+                    Syncing New Games...
+                </>
+            ) : (
+                <>
+                    <FaSync style={{ marginRight: 8 }} />
+                    Sync New Games Only
+                </>
+            )}
+        </ButtonItem>
+    );
+};
+
 const LibraryPage = () => {
     const { hasCredentials } = useSuggestMeConfig();
     const { status, progress, formatLastRefresh, reload } = useLibraryStatus();
@@ -909,13 +981,23 @@ const LibraryPage = () => {
 
                 <PanelSectionRow>
                     <div style={{ fontSize: 11, color: '#888', textAlign: 'center' }}>
-                        Syncs Steam library and scans for non-Steam games
+                        Re-syncs entire library and refreshes all metadata
                     </div>
                 </PanelSectionRow>
                 <PanelSectionRow>
                     <div style={{ fontSize: 10, color: '#aa8844', textAlign: 'center', padding: '4px 8px', backgroundColor: '#aa884411', borderRadius: 6 }}>
                         Large libraries (300+ games) may take several minutes to sync
                     </div>
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SyncNewGamesButton 
+                        disabled={status.is_refreshing || isSyncing || !hasCredentials}
+                        onComplete={() => {
+                            reload();
+                            call<[], NonSteamGamesInfo>("get_non_steam_games").then(setNonSteamInfo);
+                        }}
+                    />
                 </PanelSectionRow>
 
                 {!hasCredentials && (
@@ -977,7 +1059,7 @@ const AboutPage = () => {
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
                         <div style={{ fontSize: 13, marginBottom: 8 }}>
-                            SuggestMe (v1.2.2) is a smart game recommender for your Steam library.
+                            SuggestMe (v1.2.3) is a smart game recommender for your Steam library.
                         </div>
                         <div style={{ fontSize: 12, color: '#888' }}>
                             By Guilherme Lemos
@@ -1492,10 +1574,10 @@ const ModeTuningPage = () => {
 };
 
 const StatisticsPage = () => {
-    const [drillDownData, setDrillDownData] = useState<{ label: string; games: Game[] } | null>(null);
+    const [drillDownData, setDrillDownData] = useState<{ label: string; games: Game[]; highlightField?: keyof Game } | null>(null);
 
-    const handleViewGames = (label: string, games: Game[]) => {
-        setDrillDownData({ label, games });
+    const handleViewGames = (label: string, games: Game[], highlightField?: keyof Game) => {
+        setDrillDownData({ label, games, highlightField });
     };
 
     const handleBack = () => {
@@ -1507,6 +1589,7 @@ const StatisticsPage = () => {
             <MetadataDrillDown
                 label={drillDownData.label}
                 games={drillDownData.games}
+                highlightField={drillDownData.highlightField}
                 onBack={handleBack}
             />
         );

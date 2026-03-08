@@ -90,6 +90,7 @@ export interface LibraryStatus {
   non_steam_games_count: number;
   is_refreshing: boolean;
   error?: string;
+  sync_progress?: { current: number; total: number } | null;
 }
 
 export interface HistoryEntry {
@@ -249,6 +250,7 @@ export interface LibraryBreakdown {
   steam_reviews: Record<string, number>;
   metacritic: Record<string, number>;
   total: number;
+  unmatched_non_steam?: number;
 }
 
 export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {

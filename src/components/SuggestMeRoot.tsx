@@ -114,7 +114,7 @@ export function SuggestMeRoot() {
   const { requestSuggestion, clearCurrentSuggestion } =
     useSuggestion();
   const { count: playNextCount, addGame: addToPlayNext, removeGame: removeFromPlayNext, isInList: isInPlayNext } = usePlayNext();
-  const { excludeGame } = useExcludedGames();
+  const { excludeGame, count: excludedGamesCount } = useExcludedGames();
   const { presets, activeIndex, getActivePreset, setActive, savePreset } = useFilterPresets();
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -480,14 +480,14 @@ export function SuggestMeRoot() {
 
           {/* Excluded Games Button */}
           <Focusable
-            onActivate={navigateToExcludedGames}
+            onActivate={excludedGamesCount > 0 ? navigateToExcludedGames : undefined}
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 4,
               padding: 6,
-              backgroundColor: (candidatesCount?.excluded || 0) > 0 ? '#ff666622' : '#ffffff08',
+              backgroundColor: excludedGamesCount > 0 ? '#ff666622' : '#ffffff08',
               borderRadius: 10,
               border: '2px solid transparent',
               cursor: 'pointer',
@@ -498,13 +498,13 @@ export function SuggestMeRoot() {
               e.target.style.borderColor = 'white';
             }}
             onBlur={(e: any) => {
-              e.target.style.backgroundColor = (candidatesCount?.excluded || 0) > 0 ? '#ff666622' : '#ffffff08';
+              e.target.style.backgroundColor = excludedGamesCount > 0 ? '#ff666622' : '#ffffff08';
               e.target.style.borderColor = 'transparent';
             }}
           >
-            <FaBan size={12} style={{ color: '#ff6666' }} />
-            {(candidatesCount?.excluded || 0) > 0 && (
-              <span style={{ fontSize: 10, color: '#ff6666', fontWeight: 600 }}>{candidatesCount?.excluded}</span>
+            <FaBan size={12} style={{ color: excludedGamesCount > 0 ? '#ff6666' : '#666666' }} />
+            {excludedGamesCount > 0 && (
+              <span style={{ fontSize: 10, color: '#ff6666', fontWeight: 600 }}>{excludedGamesCount}</span>
             )}
           </Focusable>
 
@@ -644,7 +644,7 @@ export function SuggestMeRoot() {
                     <span style={{ fontSize: 12, fontWeight: filtersActive ? 600 : 400 }}>Filters</span>
                     {candidatesCount !== null && (
                       <span style={{ fontSize: 10, color: '#888', fontWeight: 400 }}>
-                        ({candidatesCount.candidates}{candidatesCount.excluded > 0 ? ` - ${candidatesCount.excluded} excluded` : ''})
+                        ({candidatesCount.excluded > 0 ? `${candidatesCount.candidates} matching + ${candidatesCount.excluded} excluded` : `${candidatesCount.candidates} games matching`})
                       </span>
                     )}
                   </div>

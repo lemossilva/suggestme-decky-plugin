@@ -39,7 +39,7 @@ const HistoryItem = ({
     const [focused, setFocused] = useState(false);
     const [confirmingExclude, setConfirmingExclude] = useState(false);
     const [justAdded, setJustAdded] = useState(false);
-    const effectiveAppId = entry.is_non_steam && entry.matched_appid ? entry.matched_appid : entry.appid;
+    const effectiveAppId = entry.appid;
 
     const formatDate = (timestamp: number) => {
         const date = new Date(timestamp * 1000);

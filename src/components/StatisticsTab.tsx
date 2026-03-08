@@ -1,15 +1,26 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
     Focusable,
     PanelSection,
     PanelSectionRow,
     ButtonItem,
-    //Spinner,
 } from "@decky/ui";
 import { call } from "@decky/api";
 import { FaSync, FaChevronRight, FaGamepad, FaSteam, FaCheck, FaExclamationTriangle } from "react-icons/fa";
 import { Game, LibraryBreakdown } from "../types";
 import { logger } from "../utils/logger";
+import { GamesListModal, FilterCategory } from "./GamesListModal";
+
+type DistributionMode = "genres" | "community_tags" | "tags";
+
+interface GamesListView {
+    title: string;
+    subtitle?: string;
+    games: Game[];
+    highlightField?: keyof Game;
+    filterCategory?: FilterCategory;
+    filterValue?: string;
+}
 
 interface MetadataFieldStats {
     field: string;
@@ -33,7 +44,7 @@ interface LibraryStats {
 }
 
 interface StatisticsTabProps {
-    onViewGames: (label: string, games: Game[]) => void;
+    onViewGames: (label: string, games: Game[], highlightField?: keyof Game) => void;
 }
 
 const TRACKED_FIELDS: { field: keyof Game; label: string; checkFn: (g: Game) => boolean }[] = [
@@ -61,6 +72,8 @@ const getSeverityBg = (percentage: number): string => {
     return "#ff666622";
 };
 
+const isCoverageEligible = (game: Game) => !(game.is_non_steam && game.match_status !== "matched");
+
 export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     const [games, setGames] = useState<Game[]>([]);
     const [stats, setStats] = useState<LibraryStats | null>(null);
@@ -68,24 +81,28 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     const [error, setError] = useState<string | null>(null);
     const [showProtonDB, setShowProtonDB] = useState(false);
     const [showMetacritic, setShowMetacritic] = useState(false);
+    const [distributionMode, setDistributionMode] = useState<DistributionMode>("genres");
+    const [gamesListView, setGamesListView] = useState<GamesListView | null>(null);
 
     const computeStats = useCallback((gameList: Game[]): LibraryStats => {
         const total = gameList.length;
+        const coverageEligibleGames = gameList.filter(isCoverageEligible);
+        const coverageTotal = coverageEligibleGames.length;
         const steamGames = gameList.filter(g => !g.is_non_steam);
         const nonSteamGames = gameList.filter(g => g.is_non_steam);
         const matchedNonSteam = nonSteamGames.filter(g => g.match_status === "matched");
         const unmatchedNonSteam = nonSteamGames.filter(g => g.match_status !== "matched");
 
         const fieldStats: MetadataFieldStats[] = TRACKED_FIELDS.map(({ field, label, checkFn }) => {
-            const filled = gameList.filter(checkFn).length;
-            const empty = total - filled;
+            const filled = coverageEligibleGames.filter(checkFn).length;
+            const empty = coverageTotal - filled;
             return {
                 field,
                 label,
                 filled,
                 empty,
-                total,
-                percentage: total > 0 ? Math.round((filled / total) * 100) : 0,
+                total: coverageTotal,
+                percentage: coverageTotal > 0 ? Math.round((filled / coverageTotal) * 100) : 0,
             };
         });
 
@@ -96,7 +113,7 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
         let partiallyEnriched = 0;
         let bareMinimum = 0;
 
-        for (const game of gameList) {
+        for (const game of coverageEligibleGames) {
             const keyFieldsFilled = keyChecks.filter(({ checkFn }) => checkFn(game)).length;
             if (keyFieldsFilled === keyChecks.length) {
                 fullyEnriched++;
@@ -148,10 +165,171 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
         loadBreakdown();
     }, [loadGames, loadBreakdown]);
 
+    const coverageGames = useMemo(() => games.filter(isCoverageEligible), [games]);
+
     const handleViewEmptyGames = (fieldDef: typeof TRACKED_FIELDS[0]) => {
-        const emptyGames = games.filter(g => !fieldDef.checkFn(g));
-        onViewGames(fieldDef.label, emptyGames);
+        const emptyGames = coverageGames.filter(g => !fieldDef.checkFn(g));
+        onViewGames(fieldDef.label, emptyGames, fieldDef.field);
     };
+
+    const blurActiveElement = () => {
+        if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+        }
+    };
+
+    const handleViewEnrichment = (category: "fully" | "partially" | "bare") => {
+        blurActiveElement();
+        const keyFields = ["genres", "tags", "deck_status", "steam_review_score"];
+        const keyChecks = TRACKED_FIELDS.filter(f => keyFields.includes(f.field));
+
+        const filteredGames = coverageGames.filter(game => {
+            const keyFieldsFilled = keyChecks.filter(({ checkFn }) => checkFn(game)).length;
+            if (category === "fully") return keyFieldsFilled === keyChecks.length;
+            if (category === "partially") return keyFieldsFilled > 0 && keyFieldsFilled < keyChecks.length;
+            return keyFieldsFilled === 0;
+        });
+
+        const titles = {
+            fully: "Fully Enriched Games",
+            partially: "Partially Enriched Games",
+            bare: "Bare Minimum Games",
+        };
+        const subtitles = {
+            fully: "Games with all key metadata fields filled",
+            partially: "Games with some metadata fields filled",
+            bare: "Games with no key metadata fields",
+        };
+
+        setGamesListView({
+            title: titles[category],
+            subtitle: subtitles[category],
+            games: filteredGames,
+            filterCategory: "enrichment",
+        });
+    };
+
+    const handleViewDistributionItem = (value: string, mode: DistributionMode) => {
+        blurActiveElement();
+        const field = mode === "genres" ? "genres" : mode === "community_tags" ? "community_tags" : "tags";
+        const filteredGames = games.filter(g => {
+            const arr = g[field] as string[];
+            return Array.isArray(arr) && arr.some(v => v.toLowerCase() === value.toLowerCase());
+        });
+
+        const modeLabels = {
+            genres: "Genre",
+            community_tags: "Community Tag",
+            tags: "Feature",
+        };
+
+        setGamesListView({
+            title: `${modeLabels[mode]}: ${value}`,
+            subtitle: `Games with this ${modeLabels[mode].toLowerCase()}`,
+            games: filteredGames,
+            highlightField: field,
+            filterCategory: mode,
+            filterValue: value,
+        });
+    };
+
+    const handleViewDeckStatus = (status: string, isProtonDB: boolean) => {
+        blurActiveElement();
+        const field = isProtonDB ? "protondb_tier" : "deck_status";
+        const filteredGames = games.filter(g => {
+            const val = g[field] as string;
+            if (!val) return status.toLowerCase() === "unknown";
+            return val.toLowerCase() === status.toLowerCase();
+        });
+
+        setGamesListView({
+            title: `${isProtonDB ? "ProtonDB" : "Deck"}: ${status}`,
+            subtitle: `Games with ${isProtonDB ? "ProtonDB" : "Deck"} status: ${status}`,
+            games: filteredGames,
+            highlightField: field,
+            filterCategory: isProtonDB ? "protondb_tier" : "deck_status",
+            filterValue: status,
+        });
+    };
+
+    const handleViewReviews = (reviewKey: string, isMetacritic: boolean) => {
+        blurActiveElement();
+        let filteredGames: Game[];
+        
+        if (isMetacritic) {
+            filteredGames = games.filter(g => {
+                const score = g.metacritic_score;
+                if (reviewKey === "90+") return score >= 90;
+                if (reviewKey === "80-89") return score >= 80 && score < 90;
+                if (reviewKey === "70-79") return score >= 70 && score < 80;
+                if (reviewKey === "60-69") return score >= 60 && score < 70;
+                if (reviewKey === "50-59") return score >= 50 && score < 60;
+                if (reviewKey === "Below 50") return score > 0 && score < 50;
+                if (reviewKey === "No Score") return score === 0;
+                return false;
+            });
+        } else {
+            filteredGames = games.filter(g => {
+                const desc = g.steam_review_description?.trim() || "";
+                if (reviewKey === "No Reviews") return !desc || desc === "";
+                return desc === reviewKey;
+            });
+        }
+
+        setGamesListView({
+            title: `${isMetacritic ? "Metacritic" : "Steam"}: ${reviewKey}`,
+            subtitle: `Games with ${isMetacritic ? "Metacritic" : "Steam"} review: ${reviewKey}`,
+            games: filteredGames,
+            highlightField: isMetacritic ? "metacritic_score" : "steam_review_score",
+            filterCategory: isMetacritic ? "metacritic" : "steam_reviews",
+            filterValue: reviewKey,
+        });
+    };
+
+    const getDistributionData = (): Record<string, number> => {
+        if (!breakdown) return {};
+        if (distributionMode === "genres") return breakdown.genres;
+        if (distributionMode === "community_tags") {
+            const tagCounts: Record<string, number> = {};
+            for (const game of games) {
+                if (game.community_tags) {
+                    for (const tag of game.community_tags) {
+                        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                    }
+                }
+            }
+            const sorted = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            return Object.fromEntries(sorted);
+        }
+        if (distributionMode === "tags") {
+            const featureCounts: Record<string, number> = {};
+            for (const game of games) {
+                if (game.tags) {
+                    for (const tag of game.tags) {
+                        featureCounts[tag] = (featureCounts[tag] || 0) + 1;
+                    }
+                }
+            }
+            const sorted = Object.entries(featureCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            return Object.fromEntries(sorted);
+        }
+        return {};
+    };
+
+
+    if (gamesListView) {
+        return (
+            <GamesListModal
+                title={gamesListView.title}
+                subtitle={gamesListView.subtitle}
+                games={gamesListView.games}
+                highlightField={gamesListView.highlightField}
+                filterCategory={gamesListView.filterCategory}
+                filterValue={gamesListView.filterValue}
+                onBack={() => setGamesListView(null)}
+            />
+        );
+    }
 
     if (error) {
         return (
@@ -331,64 +509,108 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
 
             <PanelSection title="Enrichment Summary">
                 <PanelSectionRow key="fully-enriched">
-                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
-                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px" }}>
+                    <Focusable 
+                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} 
+                        onActivate={() => handleViewEnrichment("fully")} 
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px", cursor: "pointer", border: "2px solid transparent", borderRadius: 6 }}
+                    >
                         <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#88ff88" }} />
                         <span style={{ fontSize: 12, flex: 1 }}>Fully Enriched</span>
                         <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.fullyEnriched}</span>
+                        <FaChevronRight size={10} style={{ color: "#666" }} />
                     </Focusable>
                 </PanelSectionRow>
                 <PanelSectionRow key="partially-enriched">
-                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
-                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px" }}>
+                    <Focusable 
+                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} 
+                        onActivate={() => handleViewEnrichment("partially")} 
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px", cursor: "pointer", border: "2px solid transparent", borderRadius: 6 }}
+                    >
                         <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#ffaa00" }} />
                         <span style={{ fontSize: 12, flex: 1 }}>Partially Enriched</span>
                         <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.partiallyEnriched}</span>
+                        <FaChevronRight size={10} style={{ color: "#666" }} />
                     </Focusable>
                 </PanelSectionRow>
                 <PanelSectionRow key="bare-minimum">
-                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
-                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px" }}>
+                    <Focusable 
+                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} 
+                        onActivate={() => handleViewEnrichment("bare")} 
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px", cursor: "pointer", border: "2px solid transparent", borderRadius: 6 }}
+                    >
                         <div style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#ff6666" }} />
                         <span style={{ fontSize: 12, flex: 1 }}>Bare Minimum</span>
                         <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.bareMinimum}</span>
+                        <FaChevronRight size={10} style={{ color: "#666" }} />
                     </Focusable>
                 </PanelSectionRow>
             </PanelSection>
 
             {breakdown && breakdown.total > 0 && (
                 <>
-                    <PanelSection title="Genre Distribution">
-                        {Object.entries(breakdown.genres).map(([genre, count]) => {
-                            const maxCount = Math.max(...Object.values(breakdown.genres));
+                    <PanelSection title={distributionMode === "genres" ? "Genre Distribution" : distributionMode === "community_tags" ? "Community Tags" : "Steam Features"}>
+                        <PanelSectionRow>
+                            <Focusable
+                                flow-children="row"
+                                style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}
+                            >
+                                {(["genres", "community_tags", "tags"] as const).map((mode) => (
+                                    <Focusable
+                                        key={mode}
+                                        onActivate={() => setDistributionMode(mode)}
+                                        style={{
+                                            padding: "6px 10px",
+                                            backgroundColor: distributionMode === mode ? "#4488aa" : "#ffffff11",
+                                            borderRadius: 6,
+                                            cursor: "pointer",
+                                            fontSize: 10,
+                                            border: "2px solid transparent",
+                                        }}
+                                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                    >
+                                        {mode === "genres" ? "Genres" : mode === "community_tags" ? "Tags" : "Features"}
+                                    </Focusable>
+                                ))}
+                            </Focusable>
+                        </PanelSectionRow>
+                        {Object.entries(getDistributionData()).map(([item, count]) => {
+                            const distributionData = getDistributionData();
+                            const maxCount = Math.max(...Object.values(distributionData));
                             const percentage = maxCount > 0 ? (count / maxCount) * 100 : 0;
-                            const unplayed = breakdown.unplayed_by_genre[genre] || 0;
                             return (
-                                <PanelSectionRow key={genre}>
+                                <PanelSectionRow key={item}>
                                     <Focusable
                                         onFocus={(e: any) => (e.target.style.borderColor = "white")}
                                         onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
-                                        onActivate={() => {}}
+                                        onActivate={() => handleViewDistributionItem(item, distributionMode)}
                                         style={{
                                             display: "flex",
                                             flexDirection: "column",
                                             gap: 3,
                                             width: "100%",
                                             padding: "8px",
+                                            cursor: "pointer",
+                                            border: "2px solid transparent",
+                                            borderRadius: 6,
                                         }}
                                     >
                                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                                            <span style={{ color: "#ddd" }}>{genre}</span>
-                                            <span style={{ color: "#888" }}>
-                                                {count} {unplayed > 0 && <span style={{ color: "#ffaa00" }}>({unplayed} unplayed)</span>}
-                                            </span>
+                                            <span style={{ color: "#ddd" }}>{item}</span>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                <span style={{ color: "#888" }}>{count}</span>
+                                                <FaChevronRight size={10} style={{ color: "#666" }} />
+                                            </div>
                                         </div>
                                         <div style={{ height: 8, backgroundColor: "#ffffff11", borderRadius: 4, overflow: "hidden" }}>
                                             <div
                                                 style={{
                                                     width: `${percentage}%`,
                                                     height: "100%",
-                                                    backgroundColor: "#4488aa",
+                                                    backgroundColor: distributionMode === "genres" ? "#4488aa" : distributionMode === "community_tags" ? "#aa8866" : "#66aa88",
                                                     borderRadius: 4,
                                                 }}
                                             />
@@ -441,11 +663,18 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
                             const percentage = breakdown.total > 0 ? (count / breakdown.total) * 100 : 0;
                             return (
                                 <PanelSectionRow key={key}>
-                                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
-                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", flexDirection: "column", gap: 3, width: "100%", padding: "8px" }}>
+                                    <Focusable 
+                                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} 
+                                        onActivate={() => handleViewDeckStatus(key, showProtonDB)} 
+                                        style={{ display: "flex", flexDirection: "column", gap: 3, width: "100%", padding: "8px", cursor: "pointer", border: "2px solid transparent", borderRadius: 6 }}
+                                    >
                                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
                                             <span style={{ color }}>{label}</span>
-                                            <span style={{ color: "#888" }}>{count} ({Math.round(percentage)}%)</span>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                <span style={{ color: "#888" }}>{count} ({Math.round(percentage)}%)</span>
+                                                <FaChevronRight size={10} style={{ color: "#666" }} />
+                                            </div>
                                         </div>
                                         <div style={{ height: 8, backgroundColor: "#ffffff11", borderRadius: 4, overflow: "hidden" }}>
                                             <div
@@ -513,11 +742,18 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
                             if (count === 0) return null;
                             return (
                                 <PanelSectionRow key={key}>
-                                    <Focusable onFocus={(e: any) => (e.target.style.borderColor = "white")}
-                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} onActivate={() => {}} style={{ display: "flex", flexDirection: "column", gap: 3, width: "100%", padding: "8px" }}>
+                                    <Focusable 
+                                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")} 
+                                        onActivate={() => handleViewReviews(key, showMetacritic)} 
+                                        style={{ display: "flex", flexDirection: "column", gap: 3, width: "100%", padding: "8px", cursor: "pointer", border: "2px solid transparent", borderRadius: 6 }}
+                                    >
                                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
                                             <span style={{ color }}>{label}</span>
-                                            <span style={{ color: "#888" }}>{count} ({Math.round(percentage)}%)</span>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                <span style={{ color: "#888" }}>{count} ({Math.round(percentage)}%)</span>
+                                                <FaChevronRight size={10} style={{ color: "#666" }} />
+                                            </div>
                                         </div>
                                         <div style={{ height: 8, backgroundColor: "#ffffff11", borderRadius: 4, overflow: "hidden" }}>
                                             <div
