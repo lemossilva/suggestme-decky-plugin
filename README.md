@@ -56,7 +56,169 @@ Fine-tune how Intelligent and Fresh Air modes score games:
 <details>
 <summary>📸 Click to view screenshots</summary>
 
-*(Screenshots coming soon)*
+### Main Panel
+
+<table style="width:100%;table-layout:fixed;">
+  <tr>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/main_panel.jpg" alt="Main panel - Choose your mode" style="width:100%;height:auto;" />
+      <br/><sub>Main panel - Choose your mode</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/suggestion_card_result.jpg" alt="A game suggestion, ready to launch" style="width:100%;height:auto;" />
+      <br/><sub>A game suggestion, ready to launch</sub>
+    </td>
+  </tr>
+</table>
+
+<br/>
+
+---
+
+### Spin Wheel
+
+<p align="center" style="margin:1.25rem 0;">
+  <img src="assets/screenshots/spinning_wheel_running.gif" alt="Can't decide? Let the Spin Wheel choose for you" style="width:90%;height:auto;" />
+  <br/><sub>Can't decide? Let the Spin Wheel choose for you</sub>
+</p>
+
+---
+
+### Suggestion Modes
+
+<table style="width:100%;table-layout:fixed;">
+  <tr>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/luck_result.jpg" alt="Luck - A random pick from your library" style="width:100%;height:auto;" />
+      <br/><sub>Luck - A random pick from your library</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/guided_result.jpg" alt="Guided - Clear your backlog, least played first" style="width:100%;height:auto;" />
+      <br/><sub>Guided - Clear your backlog, least played first</sub>
+    </td>
+  </tr>
+</table>
+
+<br/>
+
+<table style="width:100%;table-layout:fixed;">
+  <tr>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/smart_result.jpg" alt="Intelligent - Tailored to your recent gaming habits" style="width:100%;height:auto;" />
+      <br/><sub>Intelligent - Tailored to your recent gaming habits</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/fresh_result.jpg" alt="Fresh Air - Something completely different" style="width:100%;height:auto;" />
+      <br/><sub>Fresh Air - Something completely different</sub>
+    </td>
+  </tr>
+</table>
+
+<br/>
+
+---
+
+### Filters
+
+<table style="width:100%;table-layout:fixed;">
+  <tr>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/filter_playtime.jpg" alt="Playtime filters - Set your range or unplayed only" style="width:100%;height:auto;" />
+      <br/><sub>Playtime filters - Set your range or unplayed only</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/filter_genres.jpg" alt="Genre filters - Include or exclude what you want" style="width:100%;height:auto;" />
+      <br/><sub>Genre filters - Include or exclude what you want</sub>
+    </td>
+  </tr>
+</table>
+
+<br/>
+
+<table style="width:100%;table-layout:fixed;">
+  <tr>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/filter_tags.jpg" alt="Community Tags - Souls-like, Roguelike, Metroidvania and more" style="width:100%;height:auto;" />
+      <br/><sub>Community Tags - Souls-like, Roguelike, Metroidvania and more</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/filter_compatibility.jpg" alt="Deck Compatibility - Filter by Verified status or ProtonDB rating" style="width:100%;height:auto;" />
+      <br/><sub>Deck Compatibility - Filter by Verified status or ProtonDB rating</sub>
+    </td>
+  </tr>
+</table>
+
+<br/>
+
+<p align="center" style="margin:1.25rem 0;">
+  <img src="assets/screenshots/filter_preset.jpg" alt="Filter Presets - Save your favorite filters and switch instantly" style="width:90%;height:auto;" />
+  <br/><sub>Filter Presets - Save your favorite filters and switch instantly</sub>
+</p>
+
+<div style="height:2rem;"></div>
+
+---
+
+### Intelligent Mode Tuning
+
+<p align="center" style="margin:1.25rem 0;">
+  <img src="assets/screenshots/mode_tuning.jpg" alt="Fine-tune Intelligent mode - Adjust weights, recency, and scoring" style="width:90%;height:auto;" />
+  <br/><sub>Fine-tune Intelligent mode - Adjust weights, recency, and scoring</sub>
+</p>
+
+<div style="height:2rem;"></div>
+
+---
+
+### History & Lists
+
+<table style="width:100%;table-layout:fixed;">
+  <tr>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/history_modal.jpg" alt="Suggestion history - Revisit and act on past picks" style="width:100%;height:auto;" />
+      <br/><sub>Suggestion history - Revisit and act on past picks</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/play_next.jpg" alt="Play Next queue - Games you want to play soon" style="width:100%;height:auto;" />
+      <br/><sub>Play Next - Games you want to play soon</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/excluded_list.jpg" alt="Excluded games - Never see them again" style="width:100%;height:auto;" />
+      <br/><sub>Excluded games - Never see them again</sub>
+    </td>
+  </tr>
+</table>
+
+<div style="height:2rem;"></div>
+
+---
+
+### Library Analytics
+
+<table style="width:100%;table-layout:fixed;">
+  <tr>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/metadata_coverage.jpg" alt="Metadata coverage - Track enrichment completeness at a glance" style="width:100%;height:auto;" />
+      <br/><sub>Metadata coverage - Track enrichment completeness at a glance</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/library_breakdown_statistics_1.jpg" alt="Enrichment and Genre/Feature/Tag library analytics" style="width:100%;height:auto;" />
+      <br/><sub>Enrichment and Genre / Feature / Tag analytics</sub>
+    </td>
+  </tr>
+</table>
+
+<br/>
+
+<table style="width:100%;table-layout:fixed;">
+  <tr>
+    <td align="center" style="padding:0.5rem;">
+      <img src="assets/screenshots/library_breakdown_statistics_2.jpg" alt="Compatibility and game review score analytics" style="width:100%;height:auto;" />
+      <br/><sub>Compatibility and review score analytics</sub>
+    </td>
+    <td align="center" style="padding:0.5rem;"></td>
+  </tr>
+</table>
 
 </details>
 
