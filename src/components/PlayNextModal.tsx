@@ -8,7 +8,7 @@ import {
 } from "@decky/ui";
 import { routerHook, call, toaster } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FaListUl, FaTrash, FaSync, FaChevronRight } from "react-icons/fa";
+import { FaListUl, FaTrash, FaSync, FaChevronRight, FaStore, FaArrowUp, FaArrowDown } from "react-icons/fa";
 import { PlayNextEntry } from "../types";
 import { logger } from "../utils/logger";
 
@@ -16,15 +16,27 @@ export const PLAY_NEXT_ROUTE = '/suggestme/play-next';
 
 const GameItem = ({
     game,
+    index,
     onRemove,
-    isRemoving
+    onMoveUp,
+    onMoveDown,
+    isRemoving,
+    isFirst,
+    isLast
 }: {
     game: PlayNextEntry;
+    index: number;
     onRemove: () => void;
+    onMoveUp: () => void;
+    onMoveDown: () => void;
     isRemoving: boolean;
+    isFirst: boolean;
+    isLast: boolean;
 }) => {
     const [focused, setFocused] = useState(false);
     const imageAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
+    const canShowStore = !game.is_non_steam || (game.is_non_steam && game.matched_appid);
+    const storeAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
 
     return (
         <Focusable
@@ -36,6 +48,23 @@ const GameItem = ({
                 marginBottom: 8
             }}
         >
+            {/* Queue position number - LEFT side like Steam wishlist */}
+            <div style={{
+                width: 28,
+                height: 28,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#4488aa33',
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 'bold',
+                color: '#4488aa',
+                flexShrink: 0
+            }}>
+                {index + 1}
+            </div>
+
             <Focusable
                 onActivate={() => {
                     Navigation.NavigateToLibraryTab();
@@ -85,6 +114,67 @@ const GameItem = ({
                 </div>
                 <FaChevronRight size={10} style={{ color: '#666', flexShrink: 0 }} />
             </Focusable>
+
+            <Focusable
+                onActivate={isFirst ? undefined : onMoveUp}
+                onClick={isFirst ? undefined : onMoveUp}
+                data-move-up={game.appid}
+                style={{
+                    padding: '10px',
+                    backgroundColor: '#ffffff11',
+                    borderRadius: 8,
+                    cursor: isFirst ? 'default' : 'pointer',
+                    border: '2px solid transparent',
+                    color: '#888',
+                    opacity: isFirst ? 0.3 : 1
+                }}
+                onFocus={(e: any) => { if (!isFirst) e.target.style.borderColor = 'white'; }}
+                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+            >
+                <FaArrowUp size={12} />
+            </Focusable>
+
+            <Focusable
+                onActivate={isLast ? undefined : onMoveDown}
+                onClick={isLast ? undefined : onMoveDown}
+                data-move-down={game.appid}
+                style={{
+                    padding: '10px',
+                    backgroundColor: '#ffffff11',
+                    borderRadius: 8,
+                    cursor: isLast ? 'default' : 'pointer',
+                    border: '2px solid transparent',
+                    color: '#888',
+                    opacity: isLast ? 0.3 : 1
+                }}
+                onFocus={(e: any) => { if (!isLast) e.target.style.borderColor = 'white'; }}
+                onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+            >
+                <FaArrowDown size={12} />
+            </Focusable>
+
+            {canShowStore && (
+                <Focusable
+                    onActivate={() => {
+                        window.open(`steam://store/${storeAppId}`, "_blank");
+                    }}
+                    onClick={() => {
+                        window.open(`steam://store/${storeAppId}`, "_blank");
+                    }}
+                    style={{
+                        padding: '10px',
+                        backgroundColor: '#4488aa22',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        border: '2px solid transparent',
+                        color: '#4488aa'
+                    }}
+                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                >
+                    <FaStore size={12} />
+                </Focusable>
+            )}
 
             <Focusable
                 onActivate={onRemove}
@@ -139,6 +229,47 @@ export const PlayNextPage = () => {
             logger.error("[SuggestMe] Failed to remove game:", e);
         } finally {
             setRemovingAppid(null);
+        }
+    };
+
+    const handleReorder = async (appid: number, direction: 'up' | 'down') => {
+        try {
+            const currentIndex = games.findIndex(g => g.appid === appid);
+            const result = await call<[number, string], { success: boolean; games?: PlayNextEntry[] }>("reorder_play_next", appid, direction);
+            if (result.success && result.games) {
+                setGames(result.games);
+                
+                // Focus management: focus the same button type at the new position
+                const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+                const isAtTop = newIndex === 0;
+                const isAtBottom = newIndex === result.games.length - 1;
+                
+                // Use setTimeout to allow React to re-render before focusing
+                setTimeout(() => {
+                    const targetAppid = result.games![newIndex]?.appid;
+                    if (!targetAppid) return;
+                    
+                    // If we moved up and are now at top, focus down button instead
+                    // If we moved down and are now at bottom, focus up button instead
+                    let selector: string;
+                    if (direction === 'up' && isAtTop) {
+                        selector = `[data-move-down="${targetAppid}"]`;
+                    } else if (direction === 'down' && isAtBottom) {
+                        selector = `[data-move-up="${targetAppid}"]`;
+                    } else {
+                        selector = direction === 'up' 
+                            ? `[data-move-up="${targetAppid}"]`
+                            : `[data-move-down="${targetAppid}"]`;
+                    }
+                    
+                    const element = document.querySelector(selector) as HTMLElement;
+                    if (element) {
+                        element.focus();
+                    }
+                }, 50);
+            }
+        } catch (e) {
+            logger.error("[SuggestMe] Failed to reorder game:", e);
         }
     };
 
@@ -336,12 +467,17 @@ export const PlayNextPage = () => {
 
             {games.length > 0 && (
                 <PanelSection title={`Queue (${games.length})`}>
-                    {games.map(game => (
+                    {games.map((game, index) => (
                         <GameItem
                             key={game.appid}
                             game={game}
+                            index={index}
                             onRemove={() => handleRemove(game.appid)}
+                            onMoveUp={() => handleReorder(game.appid, 'up')}
+                            onMoveDown={() => handleReorder(game.appid, 'down')}
                             isRemoving={removingAppid === game.appid}
+                            isFirst={index === 0}
+                            isLast={index === games.length - 1}
                         />
                     ))}
                 </PanelSection>

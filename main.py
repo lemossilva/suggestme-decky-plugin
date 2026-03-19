@@ -267,7 +267,8 @@ DEFAULT_SETTINGS = {
     "hide_credentials": False,
     "date_format": "US",
     "luck_spin_wheel_enabled": False,
-    "spin_wheel_silent": False
+    "spin_wheel_silent": False,
+    "exclude_play_next_from_suggestions": False
 }
 
 
@@ -525,6 +526,7 @@ class Plugin:
             "date_format": self.settings.get("date_format", "US"),
             "luck_spin_wheel_enabled": self.settings.get("luck_spin_wheel_enabled", False),
             "spin_wheel_silent": self.settings.get("spin_wheel_silent", False),
+            "exclude_play_next_from_suggestions": self.settings.get("exclude_play_next_from_suggestions", False),
         }
 
     async def get_credentials(self) -> dict:
@@ -566,6 +568,11 @@ class Plugin:
 
     async def save_spin_wheel_silent(self, silent: bool) -> dict:
         self.settings["spin_wheel_silent"] = silent
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_exclude_play_next_from_suggestions(self, exclude: bool) -> dict:
+        self.settings["exclude_play_next_from_suggestions"] = exclude
         success = self._save_settings()
         return {"success": success}
 
@@ -692,6 +699,23 @@ class Plugin:
             self._save_play_next()
             return {"success": True, "count": len(self.play_next_list)}
         return {"success": False, "error": "Game not found in list"}
+
+    async def reorder_play_next(self, appid: int, direction: str) -> dict:
+        idx = next((i for i, e in enumerate(self.play_next_list) if e.appid == appid), -1)
+        if idx == -1:
+            return {"success": False, "error": "Game not found in list"}
+        
+        if direction == "up" and idx > 0:
+            self.play_next_list[idx], self.play_next_list[idx - 1] = \
+                self.play_next_list[idx - 1], self.play_next_list[idx]
+        elif direction == "down" and idx < len(self.play_next_list) - 1:
+            self.play_next_list[idx], self.play_next_list[idx + 1] = \
+                self.play_next_list[idx + 1], self.play_next_list[idx]
+        else:
+            return {"success": False, "error": "Cannot move in that direction"}
+        
+        self._save_play_next()
+        return {"success": True, "games": [e.to_dict() for e in self.play_next_list]}
 
     async def clear_play_next(self) -> dict:
         self.play_next_list = []
@@ -1296,16 +1320,24 @@ class Plugin:
             decky.logger.info(f"Found {len(raw_games)} games")
 
             games: list[Game] = []
+            skipped_playtests = 0
             for raw in raw_games:
+                name = raw.get("name", "Unknown")
+                if name.endswith(" Playtest"):
+                    skipped_playtests += 1
+                    continue
                 game = Game(
                     appid=raw.get("appid", 0),
-                    name=raw.get("name", "Unknown"),
+                    name=name,
                     playtime_forever=raw.get("playtime_forever", 0),
                     rtime_last_played=raw.get("rtime_last_played"),
                     img_icon_url=raw.get("img_icon_url", ""),
                     has_community_visible_stats=raw.get("has_community_visible_stats", False),
                 )
                 games.append(game)
+            
+            if skipped_playtests > 0:
+                decky.logger.info(f"Skipped {skipped_playtests} playtest entries")
 
             await self._fetch_game_metadata_batch(games, batch_size=5)
             self._clear_sync_progress()
@@ -1349,8 +1381,14 @@ class Plugin:
     def _get_excluded_appids(self) -> set[int]:
         return set(e.appid for e in self.excluded_games)
 
+    def _get_play_next_appids(self) -> set[int]:
+        return set(e.appid for e in self.play_next_list)
+
     def _filter_candidates(self, games: list[Game], filters: dict, installed_appids: set[int] = None, user_collections: dict = None) -> tuple[list[Game], int]:
         excluded_appids = self._get_excluded_appids()
+        
+        if self.settings.get("exclude_play_next_from_suggestions", False):
+            excluded_appids = excluded_appids.union(self._get_play_next_appids())
         excluded_count = 0
         candidates = []
         include_genres = set(g.lower() for g in filters.get("include_genres", []))

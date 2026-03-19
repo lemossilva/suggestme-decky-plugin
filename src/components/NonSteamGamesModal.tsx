@@ -127,10 +127,8 @@ const GameItem = ({
         >
             <Focusable
                 onActivate={() => {
-                    if (game.matched_appid) {
-                        Navigation.NavigateToLibraryTab();
-                        Navigation.Navigate(`/library/app/${game.matched_appid}`);
-                    }
+                    Navigation.NavigateToLibraryTab();
+                    Navigation.Navigate(`/library/app/${game.appid}`);
                 }}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
@@ -143,7 +141,7 @@ const GameItem = ({
                     backgroundColor: focused ? '#4488aa' : '#ffffff11',
                     borderRadius: 8,
                     border: focused ? '2px solid white' : '2px solid transparent',
-                    cursor: game.matched_appid ? 'pointer' : 'default',
+                    cursor: 'pointer',
                     minWidth: 0
                 }}
             >

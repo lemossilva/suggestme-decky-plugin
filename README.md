@@ -1,7 +1,7 @@
 # SuggestMe
 
 ![SuggestMe](https://img.shields.io/badge/Decky-Plugin-blue)
-![Version](https://img.shields.io/badge/release-v1.2.3-green)
+![Version](https://img.shields.io/badge/release-v1.2.4-green)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 
 ![SuggestMe Promo](assets/promo.png)

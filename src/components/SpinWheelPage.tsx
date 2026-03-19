@@ -197,7 +197,8 @@ export function SpinWheelPage() {
             setRotation(currentRotation);
 
             const normalizedRotation = ((currentRotation % 360) + 360) % 360;
-            const pointerSliceIndex = Math.floor(normalizedRotation / sliceAngle) % totalSlices;
+            const originalAngleAtPointer = (360 - normalizedRotation) % 360;
+            const pointerSliceIndex = Math.floor(originalAngleAtPointer / sliceAngle) % totalSlices;
 
             if (pointerSliceIndex !== lastSliceIndexRef.current) {
                 if (!silentRef.current) {
@@ -678,14 +679,14 @@ export function SpinWheelPage() {
                                             style={{
                                                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
                                                 gap: s(6), padding: `${s(10)}px ${s(8)}px`,
-                                                backgroundColor: "#ffffff11", borderRadius: s(6),
+                                                backgroundColor: "#1a6e9a", borderRadius: s(6),
                                                 border: "2px solid transparent", cursor: "pointer",
                                             }}
                                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                                             onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                                         >
-                                            <FaStore size={s(11)} style={{ color: "#aaa", flexShrink: 0 }} />
-                                            <span style={{ fontSize: s(11), color: "#aaa", whiteSpace: "nowrap" }}>Store Page</span>
+                                            <FaStore size={s(11)} style={{ color: "#fff", flexShrink: 0 }} />
+                                            <span style={{ fontSize: s(11), color: "#fff", whiteSpace: "nowrap" }}>Store Page</span>
                                         </Focusable>
                                     )}
 

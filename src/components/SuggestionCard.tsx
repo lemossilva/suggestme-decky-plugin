@@ -57,12 +57,13 @@ export function SuggestionCard({
         marginBottom: "0px",
       }}
     >
-      <div
+      <img
+        src={headerUrl}
+        alt={game.name}
         style={{
-          backgroundImage: `url(${headerUrl})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          height: "100px",
+          width: "100%",
+          height: "auto",
+          display: "block",
           borderRadius: "8px 8px 0 0",
         }}
       />

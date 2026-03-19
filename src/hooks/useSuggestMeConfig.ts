@@ -221,6 +221,26 @@ export function useSuggestMeConfig() {
     }
   }, []);
 
+  const setExcludePlayNextFromSuggestions = useCallback(async (exclude: boolean): Promise<boolean> => {
+    try {
+      const result = await call<[boolean], { success: boolean }>(
+        "save_exclude_play_next_from_suggestions",
+        exclude
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          exclude_play_next_from_suggestions: exclude,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to save exclude play next setting:", error);
+      return false;
+    }
+  }, []);
+
   const hasCredentials = Boolean(config.has_steam_api_key && config.has_steam_id);
 
   return {
@@ -238,6 +258,7 @@ export function useSuggestMeConfig() {
     setDateFormat,
     setLuckSpinWheelEnabled,
     setSpinWheelSilent,
+    setExcludePlayNextFromSuggestions,
     reload: loadConfig,
   };
 }

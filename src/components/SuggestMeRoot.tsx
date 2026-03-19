@@ -109,7 +109,7 @@ const TabButton = ({ label, icon, active, onClick }: TabButtonProps) => {
 };
 
 export function SuggestMeRoot() {
-  const { config, hasCredentials, setDefaultFilters, setLuckSpinWheelEnabled } = useSuggestMeConfig();
+  const { config, hasCredentials, setDefaultFilters, setLuckSpinWheelEnabled, setExcludePlayNextFromSuggestions } = useSuggestMeConfig();
   const { status, availableGenres, availableTags, availableCommunityTags } = useLibraryStatus();
   const { requestSuggestion, clearCurrentSuggestion } =
     useSuggestion();
@@ -643,8 +643,10 @@ export function SuggestMeRoot() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 12, fontWeight: filtersActive ? 600 : 400 }}>Filters</span>
                     {candidatesCount !== null && (
-                      <span style={{ fontSize: 10, color: '#888', fontWeight: 400 }}>
-                        ({candidatesCount.excluded > 0 ? `${candidatesCount.candidates} matching + ${candidatesCount.excluded} excluded` : `${candidatesCount.candidates} games matching`})
+                      <span style={{ fontSize: 10, color: '#888', fontWeight: 400, whiteSpace: 'nowrap' }}>
+                        ({candidatesCount.excluded > 0
+                          ? `${candidatesCount.candidates} · ${candidatesCount.excluded} excl.`
+                          : `${candidatesCount.candidates} games`})
                       </span>
                     )}
                   </div>
@@ -654,6 +656,54 @@ export function SuggestMeRoot() {
                 </div>
                 <FaChevronRight size={10} style={{ color: '#666' }} />
               </Focusable>
+              {/* Exclude Play Next Toggle - icon button */}
+              {playNextCount > 0 && (() => {
+                const isExcluding = config.exclude_play_next_from_suggestions ?? false;
+                return (
+                  <Focusable
+                    onActivate={() => {
+                      setExcludePlayNextFromSuggestions(!isExcluding);
+                      fetchCandidatesCount();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      alignSelf: 'stretch',
+                      width: 36,
+                      flexShrink: 0,
+                      backgroundColor: isExcluding ? '#ff444422' : '#ffffff11',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      border: `2px solid ${isExcluding ? '#ff444466' : 'transparent'}`,
+                      transition: 'background-color 0.15s, border-color 0.15s',
+                    }}
+                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                    onBlur={(e: any) => e.target.style.borderColor = isExcluding ? '#ff444466' : 'transparent'}
+                  >
+                    <div style={{ position: 'relative', width: 14, height: 14 }}>
+                      <FaListUl
+                        size={14}
+                        style={{ color: isExcluding ? '#555' : '#aaa' }}
+                      />
+                      {isExcluding && (
+                        <FaBan
+                          size={12}
+                          style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            color: '#ff4444',
+                          }}
+                        />
+                      )}
+                    </div>
+
+                  </Focusable>
+                );
+              })()}
+
               {filtersActive && (
                 <Focusable
                   onActivate={handleClearFilters}

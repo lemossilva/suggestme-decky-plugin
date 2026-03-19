@@ -10,7 +10,7 @@ import { FaTrash, FaChevronRight, FaHistory, FaStore, FaFilter, FaListUl, FaBan 
 import { HistoryEntry, SuggestMode, MODE_LABELS, SuggestFilters, filtersEqual, Game } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
-import { getFilterSummary, hasActiveFilters } from "./FiltersModal";
+import { hasActiveFilters } from "./FiltersModal";
 import { logger } from "../utils/logger";
 
 export const HISTORY_ROUTE = '/suggestme/history';
@@ -39,7 +39,8 @@ const HistoryItem = ({
     const [focused, setFocused] = useState(false);
     const [confirmingExclude, setConfirmingExclude] = useState(false);
     const [justAdded, setJustAdded] = useState(false);
-    const effectiveAppId = entry.appid;
+    const effectiveAppId = entry.is_non_steam && entry.matched_appid ? entry.matched_appid : entry.appid;
+    const canShowStore = !entry.is_non_steam || (entry.is_non_steam && entry.matched_appid);
 
     const formatDate = (timestamp: number) => {
         const date = new Date(timestamp * 1000);
@@ -77,198 +78,159 @@ const HistoryItem = ({
 
     const playNextColor = justAdded ? '#88ff88' : (isInPlayNext ? '#88aa88' : '#888');
     const playNextBg = justAdded ? '#88ff8833' : (isInPlayNext ? '#88aa8833' : '#ffffff11');
-    const playNextLabel = justAdded ? 'Added!' : (isInPlayNext ? 'Remove' : 'Play Next');
 
     const excludeColor = '#ff6666';
     const excludeBg = confirmingExclude ? '#ff666644' : (isExcluded ? '#ff666633' : '#ff666622');
-    const excludeLabel = isExcluded ? 'Excluded' : (confirmingExclude ? 'Confirm?' : 'Never show');
+
+    const ActionButton = ({ onActivate, icon, label, bg, color, disabled, isLast }: {
+        onActivate: (() => void) | undefined;
+        icon: React.ReactNode;
+        label: string;
+        bg: string;
+        color: string;
+        disabled?: boolean;
+        isLast?: boolean;
+    }) => (
+        <Focusable
+            onActivate={disabled ? undefined : onActivate}
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px 6px',
+                backgroundColor: bg,
+                cursor: disabled ? 'default' : 'pointer',
+                border: '2px solid transparent',
+                opacity: disabled ? 0.3 : 1,
+                borderRadius: isLast ? '0 6px 6px 0' : 0,
+                minWidth: 32,
+            }}
+            onFocus={(e: any) => { if (!disabled) e.target.style.borderColor = 'white'; }}
+            onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+        >
+            {icon}
+            <span style={{ fontSize: 7, color, marginTop: 2, whiteSpace: 'nowrap' }}>{label}</span>
+        </Focusable>
+    );
+
+    const hasFilters = entry.filters && hasActiveFilters(entry.filters as SuggestFilters);
 
     return (
-        <div style={{ marginBottom: 8 }}>
-            {/* Game info row */}
+        <Focusable
+            flow-children="row"
+            style={{
+                display: 'flex',
+                alignItems: 'stretch',
+                marginBottom: 6,
+                backgroundColor: '#ffffff11',
+                borderRadius: 8,
+                overflow: 'hidden',
+            }}
+        >
+            {/* Left: Thumbnail + Game Info (clickable to navigate) */}
             <Focusable
                 onActivate={() => {
                     Navigation.NavigateToLibraryTab();
-                    Navigation.Navigate(`/library/app/${effectiveAppId}`);
+                    Navigation.Navigate(`/library/app/${entry.appid}`);
                 }}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 10,
-                    padding: '10px 12px',
-                    backgroundColor: focused ? '#4488aa' : '#ffffff11',
-                    borderRadius: '8px 8px 0 0',
+                    gap: 8,
+                    padding: '6px 8px',
+                    flex: 1,
+                    minWidth: 0,
+                    maxWidth: 'calc(100% - 180px)',
+                    backgroundColor: focused ? '#4488aa' : 'transparent',
                     border: focused ? '2px solid white' : '2px solid transparent',
                     cursor: 'pointer',
-                    minWidth: 0
+                    borderRadius: '6px 0 0 6px',
                 }}
             >
                 <img
                     src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/capsule_184x69.jpg`}
                     alt=""
-                    style={{ width: 46, height: 17, borderRadius: 2, objectFit: 'cover' }}
-                    onError={(e: any) => e.target.style.display = 'none'}
+                    style={{ 
+                        width: 40, 
+                        height: 15, 
+                        borderRadius: 2, 
+                        objectFit: 'cover',
+                        flexShrink: 0,
+                        backgroundColor: '#333'
+                    }}
+                    onError={(e: any) => {
+                        e.target.style.display = 'none';
+                    }}
                 />
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                     <div style={{ 
-                        fontSize: 12, 
+                        fontSize: 10, 
                         overflow: 'hidden', 
                         textOverflow: 'ellipsis', 
                         whiteSpace: 'nowrap',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6
                     }}>
                         {entry.name}
-                        {entry.is_non_steam && (
-                            <span style={{ fontSize: 9, color: '#6688aa' }}>(Non-Steam)</span>
+                        {entry.is_non_steam && <span style={{ fontSize: 7, color: '#6688aa', marginLeft: 3 }}>(NS)</span>}
+                    </div>
+                    <div style={{ fontSize: 8, color: '#888', marginTop: 1 }}>
+                        {formatDate(entry.timestamp)} • {MODE_LABELS[entry.mode as SuggestMode] || entry.mode}
+                        {hasFilters && entry.preset_name && (
+                            <span style={{ color: '#88aa44', marginLeft: 4 }}>
+                                <FaFilter size={6} style={{ marginRight: 2 }} />
+                                {entry.preset_name}
+                            </span>
                         )}
                     </div>
-                    <div style={{ fontSize: 10, color: '#888' }}>
-                        {formatDate(entry.timestamp)} • {MODE_LABELS[entry.mode as SuggestMode] || entry.mode}
-                    </div>
-                    {entry.filters && hasActiveFilters(entry.filters as SuggestFilters) && (
-                        <div style={{ fontSize: 9, color: '#666', marginTop: 2 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <FaFilter size={8} style={{ opacity: 0.7, flexShrink: 0 }} />
-                                {entry.preset_name && (
-                                    <span style={{ color: '#88aa44', fontWeight: 600 }}>{entry.preset_name}:</span>
-                                )}
-                            </div>
-                            <div style={{ 
-                                marginTop: 2, 
-                                marginLeft: 12, 
-                                overflow: 'hidden', 
-                                textOverflow: 'ellipsis', 
-                                whiteSpace: 'nowrap',
-                                opacity: 0.8
-                            }}>
-                                {getFilterSummary(entry.filters as SuggestFilters)}
-                            </div>
-                        </div>
-                    )}
                 </div>
-                <FaChevronRight size={10} style={{ color: '#666', flexShrink: 0 }} />
+                <FaChevronRight size={8} style={{ color: '#555', flexShrink: 0 }} />
             </Focusable>
 
-            {/* Action buttons row */}
-            <Focusable
-                flow-children="row"
-                style={{
-                    display: 'flex',
-                    gap: 2,
-                    borderRadius: '0 0 8px 8px',
-                    overflow: 'hidden',
-                }}
-            >
-                <Focusable
+            {/* Right: Action buttons with labels */}
+            <div style={{ display: 'flex', alignItems: 'stretch', borderLeft: '1px solid #ffffff11', flexShrink: 0 }}>
+                <ActionButton
                     onActivate={handlePlayNext}
-                    style={{
-                        flex: 1,
-                        display: 'flex', flexDirection: 'column',
-                        alignItems: 'center', justifyContent: 'center',
-                        gap: 2,
-                        padding: '6px 4px',
-                        backgroundColor: playNextBg,
-                        cursor: 'pointer',
-                        border: '2px solid transparent',
-                        transition: 'background-color 0.15s',
-                    }}
-                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                >
-                    <FaListUl size={11} style={{ color: playNextColor, flexShrink: 0 }} />
-                    <span style={{ fontSize: 8, color: playNextColor, whiteSpace: 'nowrap' }}>{playNextLabel}</span>
-                </Focusable>
-
-                <Focusable
+                    icon={<FaListUl size={10} style={{ color: playNextColor }} />}
+                    label={isInPlayNext ? (justAdded ? "Added" : "Remove") : "Queue"}
+                    bg={playNextBg}
+                    color={playNextColor}
+                />
+                <ActionButton
                     onActivate={handleExclude}
-                    style={{
-                        flex: 1,
-                        display: 'flex', flexDirection: 'column',
-                        alignItems: 'center', justifyContent: 'center',
-                        gap: 2,
-                        padding: '6px 4px',
-                        backgroundColor: excludeBg,
-                        cursor: isExcluded ? 'default' : 'pointer',
-                        border: '2px solid transparent',
-                        opacity: isExcluded ? 0.5 : 1,
-                        transition: 'background-color 0.15s',
-                    }}
-                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                >
-                    <FaBan size={11} style={{ color: excludeColor, flexShrink: 0 }} />
-                    <span style={{ fontSize: 8, color: excludeColor, whiteSpace: 'nowrap' }}>{excludeLabel}</span>
-                </Focusable>
-
-                {entry.filters && hasActiveFilters(entry.filters as SuggestFilters) && (
-                    <Focusable
-                        onActivate={onRestoreFilters}
-                        style={{
-                            flex: 1,
-                            display: 'flex', flexDirection: 'column',
-                            alignItems: 'center', justifyContent: 'center',
-                            gap: 2,
-                            padding: '6px 4px',
-                            backgroundColor: '#88aa4411',
-                            cursor: 'pointer',
-                            border: '2px solid transparent',
-                            transition: 'background-color 0.15s',
-                        }}
-                        onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                        onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                    >
-                        <FaFilter size={10} style={{ color: '#88aa44' }} />
-                        <span style={{ fontSize: 8, color: '#88aa44', whiteSpace: 'nowrap' }}>Restore</span>
-                    </Focusable>
-                )}
-
-                <Focusable
-                    onActivate={() => {
-                        Navigation.NavigateToExternalWeb(`https://store.steampowered.com/app/${effectiveAppId}`);
-                    }}
-                    style={{
-                        flex: 1,
-                        display: 'flex', flexDirection: 'column',
-                        alignItems: 'center', justifyContent: 'center',
-                        gap: 2,
-                        padding: '6px 4px',
-                        backgroundColor: '#4488aa11',
-                        cursor: 'pointer',
-                        border: '2px solid transparent',
-                        transition: 'background-color 0.15s',
-                    }}
-                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                >
-                    <FaStore size={10} style={{ color: '#4488aa' }} />
-                    <span style={{ fontSize: 8, color: '#4488aa', whiteSpace: 'nowrap' }}>Store</span>
-                </Focusable>
-
-                <Focusable
+                    icon={<FaBan size={10} style={{ color: excludeColor }} />}
+                    label={isExcluded ? "Excluded" : (confirmingExclude ? "Confirm?" : "Exclude")}
+                    bg={excludeBg}
+                    color={excludeColor}
+                    disabled={isExcluded}
+                />
+                <ActionButton
+                    onActivate={onRestoreFilters}
+                    icon={<FaFilter size={9} style={{ color: hasFilters ? '#88aa44' : '#666' }} />}
+                    label="Filters"
+                    bg={hasFilters ? '#88aa4411' : '#ffffff08'}
+                    color={hasFilters ? '#88aa44' : '#666'}
+                    disabled={!hasFilters}
+                />
+                <ActionButton
+                    onActivate={() => window.open(`steam://store/${effectiveAppId}`, "_blank")}
+                    icon={<FaStore size={9} style={{ color: canShowStore ? '#4488aa' : '#666' }} />}
+                    label="Store"
+                    bg={canShowStore ? '#4488aa11' : '#ffffff08'}
+                    color={canShowStore ? '#4488aa' : '#666'}
+                    disabled={!canShowStore}
+                />
+                <ActionButton
                     onActivate={onRemove}
-                    style={{
-                        flex: 1,
-                        display: 'flex', flexDirection: 'column',
-                        alignItems: 'center', justifyContent: 'center',
-                        gap: 2,
-                        padding: '6px 4px',
-                        backgroundColor: '#ffffff08',
-                        cursor: 'pointer',
-                        border: '2px solid transparent',
-                        transition: 'background-color 0.15s',
-                    }}
-                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
-                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
-                >
-                    <FaTrash size={10} style={{ color: '#666' }} />
-                    <span style={{ fontSize: 8, color: '#666', whiteSpace: 'nowrap' }}>Remove</span>
-                </Focusable>
-            </Focusable>
-        </div>
+                    icon={<FaTrash size={9} style={{ color: '#888' }} />}
+                    label="Delete"
+                    bg="#ffffff08"
+                    color="#888"
+                    isLast
+                />
+            </div>
+        </Focusable>
     );
 };
 

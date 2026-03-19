@@ -66,6 +66,7 @@ export interface SuggestMeConfig {
   date_format?: 'US' | 'EU' | 'ISO';
   luck_spin_wheel_enabled?: boolean;
   spin_wheel_silent?: boolean;
+  exclude_play_next_from_suggestions?: boolean;
 }
 
 export interface Credentials {
