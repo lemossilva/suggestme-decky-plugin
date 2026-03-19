@@ -249,8 +249,8 @@ export const PlayNextPage = () => {
                     const targetAppid = result.games![newIndex]?.appid;
                     if (!targetAppid) return;
                     
-                    // If we moved up and are now at top, focus down button instead
-                    // If we moved down and are now at bottom, focus up button instead
+                    // If moved up and are now at top, focus down button instead
+                    // If moved down and are now at bottom, focus up button instead
                     let selector: string;
                     if (direction === 'up' && isAtTop) {
                         selector = `[data-move-down="${targetAppid}"]`;

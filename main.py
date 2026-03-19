@@ -29,6 +29,8 @@ class SuggestMode(str, Enum):
     INTELLIGENT = "intelligent"
     FRESH_AIR = "fresh_air"
     LUCK = "luck"
+    VERSUS = "versus"
+    SIMILAR_TO = "similar_to"
 
 
 @dataclass
@@ -91,6 +93,7 @@ class SuggestionHistoryEntry:
     matched_appid: Optional[int] = None
     filters: Optional[dict] = None
     preset_name: Optional[str] = None
+    extra_data: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -106,6 +109,7 @@ class SuggestionHistoryEntry:
             matched_appid=data.get("matched_appid"),
             filters=data.get("filters"),
             preset_name=data.get("preset_name"),
+            extra_data=data.get("extra_data"),
         )
 
 
@@ -114,6 +118,7 @@ LIBRARY_CACHE_FILE = "library_cache.json"
 HISTORY_FILE = "history.json"
 PLAY_NEXT_FILE = "play_next.json"
 EXCLUDED_GAMES_FILE = "excluded_games.json"
+VERSUS_STATE_FILE = "versus_state.json"
 
 
 @dataclass
@@ -230,15 +235,38 @@ class FreshAirTuning:
         )
 
 
+@dataclass
+class SimilarToTuning:
+    genre_weight: float = 1.0
+    tag_weight: float = 0.5
+    community_tag_weight: float = 0.4
+    review_proximity_weight: float = 0.15
+    top_candidate_percentile: int = 20
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SimilarToTuning":
+        return cls(
+            genre_weight=data.get("genre_weight", 1.0),
+            tag_weight=data.get("tag_weight", 0.5),
+            community_tag_weight=data.get("community_tag_weight", 0.4),
+            review_proximity_weight=data.get("review_proximity_weight", 0.15),
+            top_candidate_percentile=data.get("top_candidate_percentile", 20),
+        )
+
+
 DEFAULT_INTELLIGENT_TUNING = IntelligentTuning()
 DEFAULT_FRESH_AIR_TUNING = FreshAirTuning()
+DEFAULT_SIMILAR_TO_TUNING = SimilarToTuning()
 
 DEFAULT_SETTINGS = {
     "steam_api_key": "",
     "steam_id": "",
     "rawg_api_key": "",
     "history_limit": 50,
-    "mode_order": ["luck", "guided", "intelligent", "fresh_air"],
+    "mode_order": ["luck", "guided", "intelligent", "fresh_air", "versus", "similar_to"],
     "default_mode": "luck",
     "default_filters": {
         "include_genres": [],
@@ -264,6 +292,7 @@ DEFAULT_SETTINGS = {
     "active_preset_index": None,
     "intelligent_tuning": DEFAULT_INTELLIGENT_TUNING.to_dict(),
     "fresh_air_tuning": DEFAULT_FRESH_AIR_TUNING.to_dict(),
+    "similar_to_tuning": DEFAULT_SIMILAR_TO_TUNING.to_dict(),
     "hide_credentials": False,
     "date_format": "US",
     "luck_spin_wheel_enabled": False,
@@ -283,6 +312,7 @@ class Plugin:
     refresh_error: Optional[str] = None
     intelligent_tuning: IntelligentTuning = DEFAULT_INTELLIGENT_TUNING
     fresh_air_tuning: FreshAirTuning = DEFAULT_FRESH_AIR_TUNING
+    similar_to_tuning: SimilarToTuning = DEFAULT_SIMILAR_TO_TUNING
 
     def _get_settings_path(self) -> str:
         return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, SETTINGS_FILE)
@@ -298,6 +328,44 @@ class Plugin:
 
     def _get_excluded_games_path(self) -> str:
         return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, EXCLUDED_GAMES_FILE)
+
+    def _get_versus_state_path(self) -> str:
+        return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, VERSUS_STATE_FILE)
+
+    def _load_versus_state(self) -> dict | None:
+        path = self._get_versus_state_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                ts = data.get("saved_at", 0)
+                if time.time() - ts > 86400:
+                    self._clear_versus_state()
+                    return None
+                return data
+            except Exception as e:
+                decky.logger.error(f"Failed to load versus state: {e}")
+        return None
+
+    def _save_versus_state(self, state: dict) -> bool:
+        path = self._get_versus_state_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            state["saved_at"] = int(time.time())
+            with open(path, "w") as f:
+                json.dump(state, f, indent=2)
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to save versus state: {e}")
+            return False
+
+    def _clear_versus_state(self) -> None:
+        path = self._get_versus_state_path()
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
 
     def _load_play_next(self) -> list[PlayNextEntry]:
         path = self._get_play_next_path()
@@ -359,8 +427,10 @@ class Plugin:
     def _load_tuning_from_settings(self):
         intelligent_data = self.settings.get("intelligent_tuning", {})
         fresh_air_data = self.settings.get("fresh_air_tuning", {})
+        similar_to_data = self.settings.get("similar_to_tuning", {})
         self.intelligent_tuning = IntelligentTuning.from_dict(intelligent_data)
         self.fresh_air_tuning = FreshAirTuning.from_dict(fresh_air_data)
+        self.similar_to_tuning = SimilarToTuning.from_dict(similar_to_data)
 
     def _save_settings(self) -> bool:
         path = self._get_settings_path()
@@ -424,7 +494,7 @@ class Plugin:
             decky.logger.error(f"Failed to save history: {e}")
             return False
 
-    def _add_to_history(self, game: Game, mode: str, filters: dict = None, preset_name: str = None):
+    def _add_to_history(self, game: Game, mode: str, filters: dict = None, preset_name: str = None, extra_data: dict = None):
         self.history = [h for h in self.history if not (h.appid == game.appid and h.mode == mode)]
         entry = SuggestionHistoryEntry(
             timestamp=int(time.time()),
@@ -435,6 +505,7 @@ class Plugin:
             matched_appid=game.matched_appid,
             filters=filters,
             preset_name=preset_name,
+            extra_data=extra_data,
         )
         self.history.insert(0, entry)
         limit = self.settings.get("history_limit", 50)
@@ -518,7 +589,7 @@ class Plugin:
             "has_steam_api_key": bool(api_key),
             "has_steam_id": bool(steam_id),
             "history_limit": self.settings.get("history_limit", 50),
-            "mode_order": self.settings.get("mode_order", ["luck", "guided", "intelligent", "fresh_air"]),
+            "mode_order": self.settings.get("mode_order", ["luck", "guided", "intelligent", "fresh_air", "versus", "similar_to"]),
             "default_mode": self.settings.get("default_mode", "luck"),
             "default_filters": self.settings.get("default_filters", DEFAULT_SETTINGS["default_filters"]),
             "hide_credentials": self.settings.get("hide_credentials", False),
@@ -1884,7 +1955,9 @@ class Plugin:
             "luck": [],
             "guided": [],
             "intelligent": [],
-            "fresh_air": []
+            "fresh_air": [],
+            "versus": [],
+            "similar_to": []
         }
         for entry in self.history:
             mode = entry.mode
@@ -2526,6 +2599,7 @@ class Plugin:
         return {
             "intelligent": self.intelligent_tuning.to_dict(),
             "fresh_air": self.fresh_air_tuning.to_dict(),
+            "similar_to": self.similar_to_tuning.to_dict(),
         }
 
     async def save_mode_tuning(self, mode: str, tuning: dict) -> dict:
@@ -2536,6 +2610,9 @@ class Plugin:
             elif mode == "fresh_air":
                 self.fresh_air_tuning = FreshAirTuning.from_dict(tuning)
                 self.settings["fresh_air_tuning"] = self.fresh_air_tuning.to_dict()
+            elif mode == "similar_to":
+                self.similar_to_tuning = SimilarToTuning.from_dict(tuning)
+                self.settings["similar_to_tuning"] = self.similar_to_tuning.to_dict()
             else:
                 return {"success": False, "error": f"Unknown mode: {mode}"}
             
@@ -2553,11 +2630,216 @@ class Plugin:
             elif mode == "fresh_air":
                 self.fresh_air_tuning = FreshAirTuning()
                 self.settings["fresh_air_tuning"] = self.fresh_air_tuning.to_dict()
+            elif mode == "similar_to":
+                self.similar_to_tuning = SimilarToTuning()
+                self.settings["similar_to_tuning"] = self.similar_to_tuning.to_dict()
             else:
                 return {"success": False, "error": f"Unknown mode: {mode}"}
             
+            tuning_map = {
+                "intelligent": self.intelligent_tuning,
+                "fresh_air": self.fresh_air_tuning,
+                "similar_to": self.similar_to_tuning,
+            }
             self._save_settings()
-            return {"success": True, "tuning": self.intelligent_tuning.to_dict() if mode == "intelligent" else self.fresh_air_tuning.to_dict()}
+            return {"success": True, "tuning": tuning_map[mode].to_dict()}
         except Exception as e:
             decky.logger.error(f"Failed to reset mode tuning: {e}")
             return {"success": False, "error": str(e)}
+
+    async def get_versus_pair(self, filters: dict, installed_appids: list[int] = None, seen_appids: list[int] = None) -> dict:
+        if not self.library_cache:
+            return {"champion": None, "challenger": None, "pool_size": 0, "error": "Library is empty."}
+
+        installed_set = set(installed_appids) if installed_appids else set()
+        seen_set = set(seen_appids) if seen_appids else set()
+
+        user_collections = None
+        if filters.get("include_collections") or filters.get("exclude_collections"):
+            user_collections = await self._get_user_collections()
+
+        candidates, _ = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
+        pool = [g for g in candidates if g.appid not in seen_set]
+
+        if len(pool) < 2:
+            return {"champion": None, "challenger": None, "pool_size": len(pool), "error": "Not enough games in pool for a versus match."}
+
+        weights = [2.0 if g.playtime_forever == 0 else 1.0 for g in pool]
+        picked = random.choices(pool, weights=weights, k=2)
+        while picked[0].appid == picked[1].appid and len(pool) >= 2:
+            picked = random.choices(pool, weights=weights, k=2)
+
+        return {
+            "champion": picked[0].to_dict(),
+            "challenger": picked[1].to_dict(),
+            "pool_size": len(pool),
+            "error": None,
+        }
+
+    async def get_next_challenger(self, filters: dict, installed_appids: list[int] = None, seen_appids: list[int] = None) -> dict:
+        if not self.library_cache:
+            return {"challenger": None, "remaining": 0, "pool_exhausted": True}
+
+        installed_set = set(installed_appids) if installed_appids else set()
+        seen_set = set(seen_appids) if seen_appids else set()
+
+        user_collections = None
+        if filters.get("include_collections") or filters.get("exclude_collections"):
+            user_collections = await self._get_user_collections()
+
+        candidates, _ = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
+        pool = [g for g in candidates if g.appid not in seen_set]
+
+        if not pool:
+            return {"challenger": None, "remaining": 0, "pool_exhausted": True}
+
+        weights = [2.0 if g.playtime_forever == 0 else 1.0 for g in pool]
+        challenger = random.choices(pool, weights=weights, k=1)[0]
+
+        return {
+            "challenger": challenger.to_dict(),
+            "remaining": len(pool) - 1,
+            "pool_exhausted": False,
+        }
+
+    async def record_versus_winner(self, game_data: dict, rounds: int, pool_exhausted: bool, filters: dict = None, preset_name: str = None) -> dict:
+        appid = game_data.get("appid")
+        if not appid:
+            return {"success": False, "error": "Missing appid"}
+
+        game = Game.from_dict(game_data)
+        extra = {"rounds": rounds, "pool_exhausted": pool_exhausted}
+        self._add_to_history(game, SuggestMode.VERSUS.value, filters, preset_name, extra_data=extra)
+        return {"success": True}
+
+    def _score_similar_to(self, candidate: Game, reference: Game) -> float:
+        tuning = self.similar_to_tuning
+        score = 0.0
+
+        ref_genres = set(g.lower() for g in reference.genres)
+        ref_tags = set(t.lower() for t in reference.tags)
+        ref_ctags = set(t.lower() for t in reference.community_tags)
+
+        cand_genres = set(g.lower() for g in candidate.genres)
+        cand_tags = set(t.lower() for t in candidate.tags)
+        cand_ctags = set(t.lower() for t in candidate.community_tags)
+
+        if ref_genres or cand_genres:
+            union = len(ref_genres | cand_genres)
+            score += (len(ref_genres & cand_genres) / max(union, 1)) * tuning.genre_weight
+
+        if ref_tags or cand_tags:
+            union = len(ref_tags | cand_tags)
+            score += (len(ref_tags & cand_tags) / max(union, 1)) * tuning.tag_weight
+
+        if ref_ctags or cand_ctags:
+            union = len(ref_ctags | cand_ctags)
+            score += (len(ref_ctags & cand_ctags) / max(union, 1)) * tuning.community_tag_weight
+
+        if reference.steam_review_score > 0 and candidate.steam_review_score > 0:
+            diff = abs(reference.steam_review_score - candidate.steam_review_score)
+            proximity = 1.0 - (diff / 9.0)
+            score += proximity * tuning.review_proximity_weight
+
+        return score
+
+    def _build_similar_to_reason(self, game: Game, reference: Game, score: float) -> str:
+        ref_genres = set(g.lower() for g in reference.genres)
+        cand_genres = set(g.lower() for g in game.genres)
+        shared = [g for g in game.genres if g.lower() in ref_genres]
+
+        ref_ctags = set(t.lower() for t in reference.community_tags)
+        shared_ctags = [t for t in game.community_tags if t.lower() in ref_ctags]
+
+        parts = []
+        if shared:
+            parts.append(f"shares {', '.join(shared[:2])}")
+        if shared_ctags:
+            parts.append(f"both tagged {', '.join(shared_ctags[:2])}")
+        if game.playtime_forever == 0:
+            parts.append("unplayed")
+
+        if parts:
+            return f"Similar to {reference.name}: " + ", ".join(parts) + "."
+        return f"Similar to {reference.name} based on metadata overlap."
+
+    async def get_similar_to_suggestion(self, reference_appid: int, filters: dict, installed_appids: list[int] = None, preset_name: str = None) -> dict:
+        if not self.library_cache:
+            return {
+                "game": None, "candidates_count": 0,
+                "mode_used": "similar_to",
+                "error": "Library is empty. Please refresh your library first.",
+            }
+
+        reference = next((g for g in self.library_cache if g.appid == reference_appid), None)
+        if not reference:
+            return {
+                "game": None, "candidates_count": 0,
+                "mode_used": "similar_to",
+                "error": "Reference game not found in library.",
+            }
+
+        installed_set = set(installed_appids) if installed_appids else set()
+
+        user_collections = None
+        if filters.get("include_collections") or filters.get("exclude_collections"):
+            user_collections = await self._get_user_collections()
+
+        candidates, excluded_count = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
+        candidates = [g for g in candidates if g.appid != reference_appid]
+
+        mode_history = self._get_mode_history_appids(SuggestMode.SIMILAR_TO.value)
+        fresh = [g for g in candidates if g.appid not in mode_history]
+        if not fresh:
+            fresh = candidates
+
+        if not fresh:
+            return {
+                "game": None, "candidates_count": 0,
+                "excluded_count": excluded_count,
+                "mode_used": "similar_to",
+                "error": "No games match your filters.",
+            }
+
+        scored = [(g, self._score_similar_to(g, reference)) for g in fresh]
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        top_n = max(5, len(scored) * self.similar_to_tuning.top_candidate_percentile // 100)
+        top_pool = scored[:top_n]
+        weights = [max(0.01, s) for _, s in top_pool]
+        selected = random.choices([g for g, _ in top_pool], weights=weights, k=1)[0]
+        sim_score = next(s for g, s in scored if g.appid == selected.appid)
+
+        extra = {
+            "reference_appid": reference.appid,
+            "reference_name": reference.name,
+            "similarity_score": round(sim_score, 3),
+        }
+        self._add_to_history(selected, SuggestMode.SIMILAR_TO.value, filters, preset_name, extra_data=extra)
+
+        reason = self._build_similar_to_reason(selected, reference, sim_score)
+
+        return {
+            "game": selected.to_dict(),
+            "candidates_count": len(candidates),
+            "excluded_count": excluded_count,
+            "mode_used": "similar_to",
+            "reason": reason,
+            "reference": reference.to_dict(),
+            "similarity_score": round(sim_score, 3),
+            "error": None,
+        }
+
+    async def save_versus_state(self, state: dict) -> dict:
+        success = self._save_versus_state(state)
+        return {"success": success}
+
+    async def load_versus_state(self) -> dict:
+        state = self._load_versus_state()
+        if state:
+            return {"has_state": True, "state": state}
+        return {"has_state": False, "state": None}
+
+    async def clear_versus_state(self) -> dict:
+        self._clear_versus_state()
+        return {"success": True}

@@ -21,7 +21,7 @@ declare const appStore: {
 
 const getInstalledAppIds = getInstalledAppIdsFromHook;
 
-import { FaMagic, FaCog, FaDice, FaCompass, FaBrain, FaLeaf, FaFilter, FaTimes, FaTrash, FaChevronRight, FaGamepad, FaSteam, FaListUl, FaBan } from "react-icons/fa";
+import { FaMagic, FaCog, FaDice, FaCompass, FaBrain, FaLeaf, FaFilter, FaTimes, FaTrash, FaChevronRight, FaGamepad, FaSteam, FaListUl, FaBan, FaTrophy, FaSearch } from "react-icons/fa";
 import { call } from "@decky/api";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { useLibraryStatus } from "../hooks/useLibraryStatus";
@@ -37,6 +37,8 @@ import { navigateToPlayNext } from "./PlayNextModal";
 import { navigateToHistory } from "./HistoryModal";
 import { navigateToExcludedGames } from "./ExcludedGamesModal";
 import { navigateToSpinWheel } from "./SpinWheelPage";
+import { navigateToVersus } from "./VersusPage";
+import { navigateToSimilarTo } from "./SimilarToPage";
 import {
   SuggestMode,
   SuggestFilters,
@@ -55,6 +57,8 @@ const TAB_DEFINITIONS: Record<SuggestMode, { label: string; icon: JSX.Element }>
   guided: { label: 'Guided', icon: <FaCompass size={12} /> },
   intelligent: { label: 'Smart', icon: <FaBrain size={12} /> },
   fresh_air: { label: 'Fresh', icon: <FaLeaf size={12} /> },
+  versus: { label: 'VS', icon: <FaTrophy size={12} /> },
+  similar_to: { label: 'Like', icon: <FaSearch size={12} /> },
 };
 
 const normalizeFilters = (filters?: SuggestFilters): SuggestFilters => ({
@@ -122,7 +126,7 @@ export function SuggestMeRoot() {
   // Derive tabs from config order, fallback to default if missing
   const modeOrder = config.mode_order && config.mode_order.length > 0
     ? config.mode_order
-    : (['luck', 'guided', 'intelligent', 'fresh_air'] as SuggestMode[]);
+    : (['luck', 'guided', 'intelligent', 'fresh_air', 'versus', 'similar_to'] as SuggestMode[]);
 
   const [selectedTab, setSelectedTab] = useState<TabId | null>(null);
   const activeTab = selectedTab || modeOrder[0];
@@ -132,7 +136,9 @@ export function SuggestMeRoot() {
     luck: [],
     guided: [],
     intelligent: [],
-    fresh_air: []
+    fresh_air: [],
+    versus: [],
+    similar_to: []
   });
   const [nonSteamInfo, setNonSteamInfo] = useState<NonSteamGamesInfo | null>(null);
   const [availableCollections, setAvailableCollections] = useState<string[]>([]);
@@ -143,7 +149,9 @@ export function SuggestMeRoot() {
     luck: null,
     guided: null,
     intelligent: null,
-    fresh_air: null
+    fresh_air: null,
+    versus: null,
+    similar_to: null
   });
   const filtersActive = hasActiveFilters(filters);
   const spinWheelEnabled = config.luck_spin_wheel_enabled ?? false;
@@ -812,9 +820,9 @@ export function SuggestMeRoot() {
             <PanelSection>
               <PanelSectionRow>
                 <Focusable
-                  flow-children="row"
                   style={{
-                    display: 'flex',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
                     gap: 4,
                     width: '100%',
                     padding: 4,
@@ -880,7 +888,33 @@ export function SuggestMeRoot() {
               <PanelSectionRow>
                 <ButtonItem
                   layout="below"
-                  onClick={activeTab === 'luck' && spinWheelEnabled ? () => {
+                  onClick={activeTab === 'versus' ? () => {
+                    const vsFilters = { ...filters };
+                    if (filters.include_collections?.length) {
+                      vsFilters.include_collection_appids = getCollectionAppIds(filters.include_collections);
+                    }
+                    if (filters.exclude_collections?.length) {
+                      vsFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
+                    }
+                    navigateToVersus(
+                      vsFilters,
+                      getInstalledAppIds(),
+                      (activePreset && presetMatchesFilters) ? activePreset.label : undefined,
+                      (winner) => {
+                        if (winner) {
+                          setSuggestionsPerMode(prev => ({
+                            ...prev,
+                            versus: {
+                              game: winner,
+                              candidates_count: 0,
+                              mode_used: 'versus',
+                            }
+                          }));
+                        }
+                        loadHistory();
+                      }
+                    );
+                  } : activeTab === 'luck' && spinWheelEnabled ? () => {
                     const spinFilters = { ...filters };
                     if (filters.include_collections?.length) {
                       spinFilters.include_collection_appids = getCollectionAppIds(filters.include_collections);
@@ -906,11 +940,37 @@ export function SuggestMeRoot() {
                         loadHistory();
                       }
                     );
+                  } : activeTab === 'similar_to' ? () => {
+                    const stFilters = { ...filters };
+                    if (filters.include_collections?.length) {
+                      stFilters.include_collection_appids = getCollectionAppIds(filters.include_collections);
+                    }
+                    if (filters.exclude_collections?.length) {
+                      stFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
+                    }
+                    navigateToSimilarTo(
+                      stFilters,
+                      getInstalledAppIds(),
+                      (activePreset && presetMatchesFilters) ? activePreset.label : undefined,
+                      (game) => {
+                        if (game) {
+                          setSuggestionsPerMode(prev => ({
+                            ...prev,
+                            similar_to: {
+                              game,
+                              candidates_count: 0,
+                              mode_used: 'similar_to',
+                            }
+                          }));
+                        }
+                        loadHistory();
+                      }
+                    );
                   } : handleSuggest}
                   disabled={status.is_refreshing}
                 >
                   <FaMagic style={{ marginRight: 8 }} />
-                  {activeTab === 'luck' && spinWheelEnabled ? 'Spin the Wheel!' : 'Suggest a Game'}
+                  {activeTab === 'versus' ? 'Start Versus Battle' : activeTab === 'luck' && spinWheelEnabled ? 'Spin the Wheel!' : activeTab === 'similar_to' ? 'Open Similar To' : 'Suggest a Game'}
                 </ButtonItem>
               </PanelSectionRow>
             </div>

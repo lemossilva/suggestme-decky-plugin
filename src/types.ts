@@ -27,7 +27,7 @@ export interface NonSteamGamesInfo {
   games: Game[];
 }
 
-export type SuggestMode = "guided" | "intelligent" | "fresh_air" | "luck";
+export type SuggestMode = "guided" | "intelligent" | "fresh_air" | "luck" | "versus" | "similar_to";
 
 export interface SuggestFilters {
   include_genres: string[];
@@ -103,6 +103,7 @@ export interface HistoryEntry {
   matched_appid?: number;
   filters?: SuggestFilters;
   preset_name?: string;
+  extra_data?: Record<string, any>;
 }
 
 export interface RefreshProgress {
@@ -168,6 +169,8 @@ export const MODE_LABELS: Record<SuggestMode, string> = {
   intelligent: "Intelligent",
   fresh_air: "Fresh Air",
   luck: "Wish Me Luck",
+  versus: "Versus",
+  similar_to: "Similar To",
 };
 
 export const MODE_DESCRIPTIONS: Record<SuggestMode, string> = {
@@ -175,6 +178,8 @@ export const MODE_DESCRIPTIONS: Record<SuggestMode, string> = {
   intelligent: "Similar to your recent gaming habits",
   fresh_air: "Something different from what you usually play",
   luck: "Random pick from your library",
+  versus: "Head-to-head elimination — you pick the winner",
+  similar_to: "Find games similar to one you choose",
 };
 
 export interface IntelligentTuning {
@@ -252,6 +257,35 @@ export interface LibraryBreakdown {
   metacritic: Record<string, number>;
   total: number;
   unmatched_non_steam?: number;
+}
+
+export interface SimilarToTuning {
+  genre_weight: number;
+  tag_weight: number;
+  community_tag_weight: number;
+  review_proximity_weight: number;
+  top_candidate_percentile: number;
+}
+
+export const DEFAULT_SIMILAR_TO_TUNING: SimilarToTuning = {
+  genre_weight: 1.0,
+  tag_weight: 0.5,
+  community_tag_weight: 0.4,
+  review_proximity_weight: 0.15,
+  top_candidate_percentile: 20,
+};
+
+export interface VersusRoundPayload {
+  champion: Game;
+  challenger: Game;
+  pool_size: number;
+  error?: string;
+}
+
+export interface VersusResult {
+  winner: Game;
+  rounds: number;
+  pool_exhausted: boolean;
 }
 
 export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {

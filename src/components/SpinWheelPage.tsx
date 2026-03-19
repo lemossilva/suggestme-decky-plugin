@@ -427,16 +427,16 @@ export function SpinWheelPage() {
             ref={containerRef}
             style={{
                 width: '100%', height: '100%', backgroundColor: '#0e141b',
-                // TWEAK PADDING
-                padding: `${s(48)}px ${s(48)}px ${s(28)}px ${s(24)}px`,
+                padding: `${s(48)}px ${s(36)}px ${s(28)}px ${s(36)}px`,
                 boxSizing: 'border-box',
                 display: 'flex', flexDirection: 'column',
+                alignItems: 'center',
             }}
         >
             {/* Header: Back + History in a row */}
             <Focusable
                 flow-children="row"
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: s(12) }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: s(12), width: '100%' }}
             >
                 <Focusable
                     onActivate={handleBack}

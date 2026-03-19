@@ -1,7 +1,7 @@
 # SuggestMe
 
 ![SuggestMe](https://img.shields.io/badge/Decky-Plugin-blue)
-![Version](https://img.shields.io/badge/release-v1.2.4-green)
+![Version](https://img.shields.io/badge/release-v1.3.0-green)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 
 ![SuggestMe Promo](assets/promo.png)
@@ -17,12 +17,15 @@ SuggestMe is a Decky Loader plugin that helps you decide what game to play next 
 - **Guided** - Backlog clearing: least played games first
 - **Intelligent** - Recommends games similar to your recent gaming habits (fully tunable)
 - **Fresh Air** - Something different from what you usually play (fully tunable)
+- **Versus** - Head-to-head elimination tournament: two games face off each round, you pick the winner until a champion emerges
+- **Similar To** - Pick a reference game from your library and find the most similar games based on genre, tag, and community tag overlap (fully tunable)
 
 ### Mode Tuning
-Fine-tune how Intelligent and Fresh Air modes score games:
+Fine-tune how Intelligent, Fresh Air, and Similar To modes score games:
 - **Intelligent Mode** - Adjust recent games count, most-played count, recency decay, genre/tag/community tag weights, unplayed bonus, and top candidate percentile
 - **Fresh Air Mode** - Adjust genre/tag/community tag penalties, unplayed bonus, novel genre bonus, and top candidate percentile
-- Community tags are now integrated into the preference profile and scoring for both modes
+- **Similar To Mode** - Adjust genre/tag/community tag overlap weights, review proximity bonus, and top candidate percentile
+- Community tags are integrated into the preference profile and scoring for all tunable modes
 
 ### Powerful Filtering Engine
 - **Source** - Include or exclude Steam vs. Non-Steam games

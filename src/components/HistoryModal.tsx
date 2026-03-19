@@ -6,7 +6,7 @@ import {
 } from "@decky/ui";
 import { routerHook, call } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FaTrash, FaChevronRight, FaHistory, FaStore, FaFilter, FaListUl, FaBan } from "react-icons/fa";
+import { FaTrash, FaChevronRight, FaHistory, FaStore, FaFilter, FaListUl, FaBan, FaTrophy, FaSearch } from "react-icons/fa";
 import { HistoryEntry, SuggestMode, MODE_LABELS, SuggestFilters, filtersEqual, Game } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
@@ -15,8 +15,8 @@ import { logger } from "../utils/logger";
 
 export const HISTORY_ROUTE = '/suggestme/history';
 
-const HistoryItem = ({ 
-    entry, 
+const HistoryItem = ({
+    entry,
     onRemove,
     onRestoreFilters,
     onAddToPlayNext,
@@ -25,8 +25,8 @@ const HistoryItem = ({
     isInPlayNext,
     isExcluded,
     dateFormat = 'US'
-}: { 
-    entry: HistoryEntry; 
+}: {
+    entry: HistoryEntry;
     onRemove: () => void;
     onRestoreFilters: () => void;
     onAddToPlayNext: () => void;
@@ -47,7 +47,7 @@ const HistoryItem = ({
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
         const dd = String(date.getDate()).padStart(2, '0');
-        
+
         switch (dateFormat) {
             case 'EU': return `${dd}/${mm}/${yyyy}`;
             case 'ISO': return `${yyyy}-${mm}-${dd}`;
@@ -153,10 +153,10 @@ const HistoryItem = ({
                 <img
                     src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/capsule_184x69.jpg`}
                     alt=""
-                    style={{ 
-                        width: 40, 
-                        height: 15, 
-                        borderRadius: 2, 
+                    style={{
+                        width: 40,
+                        height: 15,
+                        borderRadius: 2,
                         objectFit: 'cover',
                         flexShrink: 0,
                         backgroundColor: '#333'
@@ -166,10 +166,10 @@ const HistoryItem = ({
                     }}
                 />
                 <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                    <div style={{ 
-                        fontSize: 10, 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis', 
+                    <div style={{
+                        fontSize: 10,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                     }}>
                         {entry.name}
@@ -177,6 +177,18 @@ const HistoryItem = ({
                     </div>
                     <div style={{ fontSize: 8, color: '#888', marginTop: 1 }}>
                         {formatDate(entry.timestamp)} • {MODE_LABELS[entry.mode as SuggestMode] || entry.mode}
+                        {entry.mode === 'versus' && entry.extra_data?.rounds != null && (
+                            <span style={{ color: '#aa8844', marginLeft: 4 }}>
+                                <FaTrophy size={6} style={{ marginRight: 2 }} />
+                                {entry.extra_data.rounds} round{entry.extra_data.rounds !== 1 ? 's' : ''}
+                            </span>
+                        )}
+                        {entry.mode === 'similar_to' && entry.extra_data?.reference_name && (
+                            <span style={{ color: '#4488aa', marginLeft: 4 }}>
+                                <FaSearch size={6} style={{ marginRight: 2 }} />
+                                Like {entry.extra_data.reference_name}
+                            </span>
+                        )}
                         {hasFilters && entry.preset_name && (
                             <span style={{ color: '#88aa44', marginLeft: 4 }}>
                                 <FaFilter size={6} style={{ marginRight: 2 }} />
@@ -273,13 +285,13 @@ export const HistoryPage = () => {
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
         const initialMode = urlParams.get('mode') as SuggestMode;
-        if (initialMode && ['luck', 'guided', 'intelligent', 'fresh_air'].includes(initialMode)) {
+        if (initialMode && ['luck', 'guided', 'intelligent', 'fresh_air', 'versus', 'similar_to'].includes(initialMode)) {
             setActiveTab(initialMode);
         }
     }, []);
 
-    const filteredItems = activeTab === 'all' 
-        ? historyItems 
+    const filteredItems = activeTab === 'all'
+        ? historyItems
         : historyItems.filter(item => item.mode === activeTab);
 
     const handleRemove = async (mode: string, appid: number) => {
@@ -308,7 +320,7 @@ export const HistoryPage = () => {
         if (!filters) return;
         try {
             await call<[SuggestFilters], { success: boolean }>("save_default_filters", filters);
-            
+
             // Check if this filter combination matches any existing preset
             const presetsResult = await call<[], any>("get_filter_presets");
             if (presetsResult && presetsResult.presets) {
@@ -320,7 +332,7 @@ export const HistoryPage = () => {
                         break;
                     }
                 }
-                
+
                 if (matchingIndex !== -1) {
                     await call<[number], { success: boolean }>("set_active_preset", matchingIndex);
                 } else {
@@ -335,21 +347,24 @@ export const HistoryPage = () => {
     };
 
     return (
-        <div ref={scrollRef} style={{ 
-            width: '100%', 
-            height: '100%', 
+        <div ref={scrollRef} style={{
+            width: '100%',
+            height: '100%',
             backgroundColor: '#0e141b',
             padding: '16px 24px 80px 24px',
             maxHeight: 'calc(100vh - 60px)',
             overflowY: 'auto',
-            //boxSizing: 'border-box'
+            overflowX: 'hidden',
+            boxSizing: 'border-box',
         }}>
-            <Focusable 
-                onActivate={() => {}}
+            <Focusable
+                onActivate={() => { }}
                 onFocus={(e: any) => (e.target.style.borderColor = "transparent")}
                 onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
-                style={{ height: 80, width: '100%' }}
+                style={{ height: 0, width: 0, overflow: 'hidden' }}
             >{null}</Focusable>
+
+            <div style={{ height: 80 }} />
             <PanelSection title="Suggestion History">
                 <PanelSectionRow>
                     <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>
@@ -394,7 +409,7 @@ export const HistoryPage = () => {
                         paddingBottom: 4
                     }}
                 >
-                    {(['all', 'luck', 'guided', 'intelligent', 'fresh_air'] as const).map((mode) => (
+                    {(['all', 'luck', 'guided', 'intelligent', 'fresh_air', 'versus', 'similar_to'] as const).map((mode) => (
                         <Focusable
                             key={mode}
                             onActivate={() => setActiveTab(mode)}
@@ -453,8 +468,8 @@ export const HistoryPage = () => {
             {filteredItems.length === 0 && (
                 <PanelSection>
                     <PanelSectionRow>
-                        <Focusable 
-                            onActivate={() => {}}
+                        <Focusable
+                            onActivate={() => { }}
                             style={{
                                 padding: '24px',
                                 textAlign: 'center',

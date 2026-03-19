@@ -20,8 +20,17 @@ import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { useLibraryStatus } from "../hooks/useLibraryStatus";
 import { navigateToNonSteamGames } from "./NonSteamGamesModal";
 import { call, toaster } from "@decky/api";
-import { NonSteamGamesInfo, IntelligentTuning, FreshAirTuning, DEFAULT_INTELLIGENT_TUNING, DEFAULT_FRESH_AIR_TUNING, ModeTuning, SuggestMode, MODE_LABELS } from "../types";
+import { NonSteamGamesInfo, IntelligentTuning, FreshAirTuning, SimilarToTuning, DEFAULT_INTELLIGENT_TUNING, DEFAULT_FRESH_AIR_TUNING, DEFAULT_SIMILAR_TO_TUNING, ModeTuning, SuggestMode, MODE_LABELS } from "../types";
 import { logger } from "../utils/logger";
+
+const TAB_LABELS: Record<SuggestMode, string> = {
+    luck: "Luck",
+    guided: "Guided",
+    intelligent: "Smart",
+    fresh_air: "Fresh",
+    versus: "VS",
+    similar_to: "Like",
+};
 
 export const SETTINGS_ROUTE = '/suggestme/settings';
 
@@ -586,7 +595,7 @@ const GeneralSettingsPage = () => {
 
     // Ensure a valid mode order with all modes present
     useEffect(() => {
-        const defaultOrder: SuggestMode[] = ["luck", "guided", "intelligent", "fresh_air"];
+        const defaultOrder: SuggestMode[] = ["luck", "guided", "intelligent", "fresh_air", "versus", "similar_to"];
         const currentOrder = config.mode_order || [];
         
         // If config is missing modes or has duplicates, reset/merge
@@ -683,7 +692,7 @@ const GeneralSettingsPage = () => {
                                 onFocus={(e: any) => e.target.style.borderColor = 'white'}
                                 onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                             >
-                                <span style={{ fontSize: 13 }}>{MODE_LABELS[mode]}</span>
+                                <span style={{ fontSize: 13 }}>{TAB_LABELS[mode]} <span style={{ color: '#666', fontSize: 11 }}>({MODE_LABELS[mode]})</span></span>
                                 <div style={{ display: 'flex', gap: 4 }}>
                                     <Focusable
                                         onActivate={index === 0 ? undefined : () => moveMode(index, 'up')}
@@ -1019,7 +1028,7 @@ const LibraryPage = () => {
     );
 };
 
-const ModeRow = ({ title, description }: { title: string; description: ReactNode }) => {
+const RowElement = ({ title, description }: { title: string; description: ReactNode }) => {
     return (
         <Focusable
             onActivate={() => {}}
@@ -1058,10 +1067,11 @@ const AboutPage = () => {
             <PanelSection>
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
-                        <div style={{ fontSize: 13, marginBottom: 8 }}>
-                            SuggestMe (v1.2.4) is a smart game recommender for your Steam library.
+                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>SuggestMe v1.3.0</div>
+                        <div style={{ fontSize: 11, color: '#888' }}>
+                            A smart game recommender for your Steam library.
                         </div>
-                        <div style={{ fontSize: 12, color: '#888' }}>
+                        <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
                             By Guilherme Lemos
                         </div>
                     </Focusable>
@@ -1069,33 +1079,170 @@ const AboutPage = () => {
             </PanelSection>
 
             <PanelSection title="Suggestion Modes">
-                <ModeRow 
-                    title="Wish Me Luck" 
-                    description="Pure random selection from your filtered library. Every game has an equal chance, with a slight bias toward unplayed titles. Perfect when you can't decide."
+                <RowElement
+                    title="Luck"
+                    description="Random pick from your filtered library with a slight bias toward unplayed games. Enable Spin Wheel mode for a visual roulette experience."
                 />
-                <ModeRow 
-                    title="Guided" 
-                    description="Prioritizes your backlog by suggesting games with the least playtime first. Weights games inversely to hours played, helping you finally start those untouched purchases."
+                <RowElement
+                    title="Guided"
+                    description="Backlog clearing — suggests games with the least playtime first. Helps you finally play those untouched purchases."
                 />
-                <ModeRow 
-                    title="Intelligent" 
+                <RowElement
+                    title="Smart (Intelligent)"
                     description={
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div>Analyzes your recent play sessions and most-played games to build a preference profile based on genres, tags, and play patterns. Suggests similar games you haven't explored yet.</div>
-                            <div><strong>How it works:</strong> Scores games based on overlap with your taste profile. Recency and total playtime weight the profile.</div>
-                            <div><strong>Tuning Tip:</strong> Increase 'Recency Decay' if you want your long-term history to matter more. Increase 'Unplayed Bonus' to prioritize backlog gems similar to your favorites.</div>
+                            <div>Builds a preference profile from your recent play sessions and most-played games. Suggests titles that match your taste in genres, tags, and play patterns.</div>
+                            <div><strong>Tuning:</strong> Adjust via Settings &gt; Mode Tuning. Increase Recency Decay to weight long-term history. Increase Unplayed Bonus to prioritize backlog gems.</div>
                         </div>
                     }
                 />
-                <ModeRow 
-                    title="Fresh Air" 
+                <RowElement
+                    title="Fresh (Fresh Air)"
                     description={
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div>The opposite of Intelligent — identifies your comfort zone and deliberately suggests games outside it. Finds titles with genres and tags you rarely play to broaden your horizons.</div>
-                            <div><strong>How it works:</strong> Penalizes games that match your usual genres/tags. Boosts games with 'Novel' genres you've never touched.</div>
-                            <div><strong>Tuning Tip:</strong> Increase 'Genre/Tag Penalty' to strictly avoid your usual types. Increase 'Novel Genre Bonus' to aggressively find completely new experiences.</div>
+                            <div>The opposite of Intelligent — identifies your comfort zone and suggests games outside it. Finds genres and tags you rarely play.</div>
+                            <div><strong>Tuning:</strong> Increase Genre/Tag Penalty to avoid your usual types. Increase Novel Genre Bonus for completely new experiences.</div>
                         </div>
                     }
+                />
+                <RowElement
+                    title="VS (Versus)"
+                    description="Head-to-head elimination bracket. Two games face off and you pick the winner. The champion takes on the next challenger until you stop or the pool is exhausted. Battle progress is saved automatically — resume anytime within 24 hours."
+                />
+                <RowElement
+                    title="Like (Similar To)"
+                    description="Pick any game from your library as a reference, and the algorithm finds similar titles based on shared genres, tags, community tags, and review scores. Opens in a dedicated page with a searchable game picker."
+                />
+            </PanelSection>
+
+            <PanelSection title="Filters">
+                <RowElement
+                    title="What are filters?"
+                    description="Filters narrow down which games are eligible for suggestions. They apply to all modes. Set them from the filter button on the main screen."
+                />
+                <RowElement
+                    title="Genre / Tag / Community Tag"
+                    description="Include or exclude games by their Steam genres (Action, RPG…), feature tags (Single-player, Controller Support…), or community-applied store tags (Souls-like, Cozy…)."
+                />
+                <RowElement
+                    title="Playtime"
+                    description="Set min/max playtime thresholds. Toggle whether to include unplayed (0 hours) games."
+                />
+                <RowElement
+                    title="Install status"
+                    description="Filter to only installed games, only not-installed games, or both."
+                />
+                <RowElement
+                    title="Compatibility"
+                    description="Filter by Steam Deck verification status (Verified, Playable, Unsupported) or ProtonDB tier (Platinum, Gold, Silver…)."
+                />
+                <RowElement
+                    title="Review scores"
+                    description="Set minimum Steam review score or Metacritic score. Optionally include games without reviews."
+                />
+                <RowElement
+                    title="Collections"
+                    description="Include or exclude games from your Steam collections."
+                />
+                <RowElement
+                    title="Non-Steam games"
+                    description="Filter to only Non-Steam games or exclude them entirely."
+                />
+            </PanelSection>
+
+            <PanelSection title="Filter Presets">
+                <RowElement
+                    title="Overview"
+                    description="Save up to 3 filter combinations as presets for quick switching. Active preset is shown on the main screen. Presets persist across sessions."
+                />
+                <RowElement
+                    title="How to use"
+                    description="Configure your filters, then save them to a preset slot. Tap a preset pill on the main screen to activate it instantly."
+                />
+            </PanelSection>
+
+            <PanelSection title="Spin Wheel">
+                <RowElement
+                    title="Overview"
+                    description="A visual roulette wheel for Luck mode. Toggle it on from the Luck tab. Swipe or press Spin to start. Sound effects can be muted."
+                />
+            </PanelSection>
+
+            <PanelSection title="Play Next List">
+                <RowElement
+                    title="Overview"
+                    description="A personal queue of games you intend to play. Add any suggested game to the list from the suggestion card or from full-page modes. Access the full list from the header bar."
+                />
+                <RowElement
+                    title="Exclude from suggestions"
+                    description='Enable "Exclude Play Next from suggestions" in General settings to prevent queued games from being suggested again.'
+                />
+            </PanelSection>
+
+            <PanelSection title="Excluded Games">
+                <RowElement
+                    title="Overview"
+                    description="Permanently hide games from all suggestions. Excluded games appear in the Excluded list accessible from the header bar, where they can be restored."
+                />
+            </PanelSection>
+
+            <PanelSection title="History">
+                <RowElement
+                    title="Overview"
+                    description="Every suggestion is recorded with its mode, filters used, and timestamp. Browse by mode or view all. Restore previous filter configurations from any history entry."
+                />
+                <RowElement
+                    title="Limit"
+                    description="Configurable in General settings (default: 50 entries). Older entries are automatically removed."
+                />
+            </PanelSection>
+
+            <PanelSection title="Non-Steam Games">
+                <RowElement
+                    title="Detection"
+                    description="Non-Steam shortcuts are detected from your Steam userdata. The plugin attempts to match each one to a Steam store entry for metadata (genres, tags, reviews, artwork)."
+                />
+                <RowElement
+                    title="Management"
+                    description="View matched/unmatched games, retry matching, edit search terms, or remove entries from the Non-Steam Games page in Settings."
+                />
+            </PanelSection>
+
+            <PanelSection title="Library & Sync">
+                <RowElement
+                    title="Initial setup"
+                    description="Enter your Steam API Key and Steam ID 64 in Settings > Credentials. Then refresh your library to fetch your owned games and metadata."
+                />
+                <RowElement
+                    title="Full Sync vs Quick Refresh"
+                    description="Quick Refresh fetches your owned games list. Full Sync also detects Non-Steam games and fetches detailed metadata (genres, tags, reviews) for all games — this can take a few minutes for large libraries."
+                />
+                <RowElement
+                    title="Sync New Games"
+                    description="Incrementally adds newly purchased or added games without re-syncing your entire library."
+                />
+            </PanelSection>
+
+            <PanelSection title="Settings Overview">
+                <RowElement
+                    title="Credentials"
+                    description="Steam API Key and Steam ID 64 for fetching your library. Optional RAWG API Key for additional metadata."
+                />
+                <RowElement
+                    title="General"
+                    description="History limit, tab ordering, date format, Spin Wheel toggle, and Play Next exclusion toggle."
+                />
+                <RowElement
+                    title="Mode Tuning"
+                    description="Fine-tune the Intelligent, Fresh Air, and Similar To algorithms. Adjust genre/tag weights, bonuses, and candidate pool sizes. Reset to defaults anytime."
+                />
+                <RowElement
+                    title="Statistics"
+                    description="View your library breakdown by genre, deck compatibility, review scores, and more."
+                />
+                <RowElement
+                    title="Maintenance"
+                    description="Clear cache (keeps credentials) or factory reset (removes everything)."
                 />
             </PanelSection>
 
@@ -1260,14 +1407,16 @@ const FactoryResetButton = () => {
 const ModeTuningPage = () => {
     const [intelligentTuning, setIntelligentTuning] = useState<IntelligentTuning>(DEFAULT_INTELLIGENT_TUNING);
     const [freshAirTuning, setFreshAirTuning] = useState<FreshAirTuning>(DEFAULT_FRESH_AIR_TUNING);
+    const [similarToTuning, setSimilarToTuning] = useState<SimilarToTuning>(DEFAULT_SIMILAR_TO_TUNING);
 
     useEffect(() => {
         const loadTuning = async () => {
             try {
-                const result = await call<[], ModeTuning>("get_mode_tuning");
+                const result = await call<[], ModeTuning & { similar_to?: SimilarToTuning }>("get_mode_tuning");
                 if (result) {
                     setIntelligentTuning(result.intelligent);
                     setFreshAirTuning(result.fresh_air);
+                    if (result.similar_to) setSimilarToTuning(result.similar_to);
                 }
             } catch (e) {
                 logger.error("[SuggestMe] Failed to load mode tuning:", e);
@@ -1289,6 +1438,14 @@ const ModeTuningPage = () => {
             await call<[string, FreshAirTuning], { success: boolean }>("save_mode_tuning", "fresh_air", tuning);
         } catch (e) {
             logger.error("[SuggestMe] Failed to save fresh air tuning:", e);
+        }
+    }, []);
+
+    const saveSimilarTo = useCallback(async (tuning: SimilarToTuning) => {
+        try {
+            await call<[string, SimilarToTuning], { success: boolean }>("save_mode_tuning", "similar_to", tuning);
+        } catch (e) {
+            logger.error("[SuggestMe] Failed to save similar to tuning:", e);
         }
     }, []);
 
@@ -1316,6 +1473,18 @@ const ModeTuningPage = () => {
         }
     };
 
+    const handleResetSimilarTo = async () => {
+        try {
+            const result = await call<[string], { success: boolean; tuning: SimilarToTuning }>("reset_mode_tuning", "similar_to");
+            if (result.success && result.tuning) {
+                setSimilarToTuning(result.tuning);
+                toaster.toast({ title: "SuggestMe • Reset", body: "Similar To mode reset to defaults", duration: 2000 });
+            }
+        } catch (e) {
+            logger.error("[SuggestMe] Failed to reset similar to tuning:", e);
+        }
+    };
+
     const updateIntelligent = (key: keyof IntelligentTuning, value: number) => {
         const updated = { ...intelligentTuning, [key]: value };
         setIntelligentTuning(updated);
@@ -1326,6 +1495,12 @@ const ModeTuningPage = () => {
         const updated = { ...freshAirTuning, [key]: value };
         setFreshAirTuning(updated);
         saveFreshAir(updated);
+    };
+
+    const updateSimilarTo = (key: keyof SimilarToTuning, value: number) => {
+        const updated = { ...similarToTuning, [key]: value };
+        setSimilarToTuning(updated);
+        saveSimilarTo(updated);
     };
 
 
@@ -1569,6 +1744,86 @@ const ModeTuningPage = () => {
                 </PanelSectionRow>
             </PanelSection>
 
+            <PanelSection title="Similar To Mode">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                        Finds games similar to a reference game you pick.
+                    </div>
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Genre Weight"
+                        description="How much genre overlap influences similarity"
+                        value={similarToTuning.genre_weight}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        onChange={(v) => updateSimilarTo("genre_weight", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Tag Weight"
+                        description="How much Steam feature overlap influences similarity"
+                        value={similarToTuning.tag_weight}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        onChange={(v) => updateSimilarTo("tag_weight", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Community Tag Weight"
+                        description="How much community tag overlap influences similarity"
+                        value={similarToTuning.community_tag_weight}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        onChange={(v) => updateSimilarTo("community_tag_weight", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Review Proximity Weight"
+                        description="Bonus for games with similar review scores"
+                        value={similarToTuning.review_proximity_weight}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        onChange={(v) => updateSimilarTo("review_proximity_weight", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <SliderField
+                        label="Top Candidates %"
+                        description="Percentage of top-scored games to pick from"
+                        value={similarToTuning.top_candidate_percentile}
+                        min={5}
+                        max={50}
+                        step={5}
+                        onChange={(v) => updateSimilarTo("top_candidate_percentile", v)}
+                        showValue
+                    />
+                </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <ButtonItem layout="below" onClick={handleResetSimilarTo}>
+                        <FaUndo style={{ marginRight: 8 }} />
+                        Reset Similar To to Defaults
+                    </ButtonItem>
+                </PanelSectionRow>
+            </PanelSection>
+
         </ScrollableContent>
     );
 };
@@ -1631,7 +1886,7 @@ export const SettingsPage = () => {
             content: <MaintenancePage />
         },
         {
-            title: "About",
+            title: "About & Instructions",
             icon: <FaInfoCircle size={14} />,
             content: <AboutPage />
         }
