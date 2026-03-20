@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Focusable, Navigation, TextField } from "@decky/ui";
 import { call } from "@decky/api";
-import { FaSearch, FaArrowLeft, FaExternalLinkAlt, FaGamepad, FaStar, FaStore, FaListUl, FaBan, FaHistory, FaRedo, FaMagic } from "react-icons/fa";
+import { FaSearch, FaArrowLeft, FaExternalLinkAlt, FaGamepad, FaStar, FaStore, FaListUl, FaBan, FaHistory, FaRedo, FaMagic, FaFilter } from "react-icons/fa";
 import { Game, SuggestFilters, SuggestionResult } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
@@ -13,17 +13,20 @@ export const SIMILAR_TO_ROUTE = "/suggestme/similar-to";
 let cachedFilters: SuggestFilters | null = null;
 let cachedInstalledAppIds: number[] = [];
 let cachedPresetName: string | undefined = undefined;
+let cachedFilterPool: boolean = false;
 let onCompleteCallback: ((game: Game | null) => void) | null = null;
 
 export function navigateToSimilarTo(
     filters: SuggestFilters,
     installedAppIds: number[],
     presetName: string | undefined,
-    onComplete: (game: Game | null) => void
+    onComplete: (game: Game | null) => void,
+    filterPool: boolean = false
 ) {
     cachedFilters = filters;
     cachedInstalledAppIds = installedAppIds;
     cachedPresetName = presetName;
+    cachedFilterPool = filterPool;
     onCompleteCallback = onComplete;
     Navigation.Navigate(SIMILAR_TO_ROUTE);
 }
@@ -39,7 +42,7 @@ export function SimilarToPage() {
     const [allGames, setAllGames] = useState<Game[]>([]);
     const [loading, setLoading] = useState(true);
     const [query, setQuery] = useState("");
-    const [referenceGame, setReferenceGame] = useState<Game | null>(null);
+    const [referenceGames, setReferenceGames] = useState<Game[]>([]);
     const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
     const [suggesting, setSuggesting] = useState(false);
     const [confirmingExclude, setConfirmingExclude] = useState(false);
@@ -57,7 +60,16 @@ export function SimilarToPage() {
     useEffect(() => {
         const loadGames = async () => {
             try {
-                const result = await call<[], { games: Game[] }>("get_library_games");
+                let result: { games: Game[] };
+                if (cachedFilterPool && cachedFilters) {
+                    result = await call<[object, number[]], { games: Game[] }>(
+                        "get_filtered_library_games",
+                        cachedFilters,
+                        cachedInstalledAppIds
+                    );
+                } else {
+                    result = await call<[], { games: Game[] }>("get_library_games");
+                }
                 if (!mountedRef.current) return;
                 if (result?.games) {
                     const eligible = result.games.filter(g =>
@@ -75,23 +87,36 @@ export function SimilarToPage() {
         loadGames();
     }, []);
 
+    const selectedAppIds = new Set(referenceGames.map(g => g.appid));
+    const availableGames = allGames.filter(g => !selectedAppIds.has(g.appid));
     const filtered = query.trim()
-        ? allGames.filter(g => g.name.toLowerCase().includes(query.toLowerCase())).slice(0, 30)
-        : allGames.slice(0, 30);
+        ? availableGames.filter(g => g.name.toLowerCase().includes(query.toLowerCase()))
+        : availableGames;
 
-    const handleSelectReference = (game: Game) => {
-        setReferenceGame(game);
+    const handleAddReference = (game: Game) => {
+        setReferenceGames(prev => [...prev, game]);
         setSuggestion(null);
         setQuery("");
     };
 
+    const handleRemoveReference = (appid: number) => {
+        setReferenceGames(prev => prev.filter(g => g.appid !== appid));
+        setSuggestion(null);
+    };
+
+    const handleClearReferences = () => {
+        setReferenceGames([]);
+        setSuggestion(null);
+    };
+
     const handleSuggest = useCallback(async () => {
-        if (!referenceGame || !cachedFilters) return;
+        if (referenceGames.length === 0 || !cachedFilters) return;
         setSuggesting(true);
         try {
-            const result = await call<[number, object, number[], string?], SuggestionResult>(
+            const appids = referenceGames.map(g => g.appid);
+            const result = await call<[number[], object, number[], string?], SuggestionResult>(
                 "get_similar_to_suggestion",
-                referenceGame.appid,
+                appids,
                 cachedFilters,
                 cachedInstalledAppIds,
                 cachedPresetName
@@ -103,7 +128,7 @@ export function SimilarToPage() {
         } finally {
             if (mountedRef.current) setSuggesting(false);
         }
-    }, [referenceGame]);
+    }, [referenceGames]);
 
     const handleBack = () => {
         if (suggestion?.game && onCompleteCallback) {
@@ -113,6 +138,8 @@ export function SimilarToPage() {
         }
         Navigation.NavigateBack();
     };
+
+    const hasReferences = referenceGames.length > 0;
 
     const handleLaunch = () => {
         if (suggestion?.game) {
@@ -207,7 +234,9 @@ export function SimilarToPage() {
                     minWidth: 0,
                     overflow: "hidden",
                 }}>
-                    <div style={{ fontSize: 11, color: "#888", fontWeight: 500 }}>Pick a reference game</div>
+                    <div style={{ fontSize: 11, color: "#888", fontWeight: 500 }}>
+                        {hasReferences ? `${referenceGames.length} reference${referenceGames.length > 1 ? 's' : ''} selected` : 'Pick reference games'}
+                    </div>
 
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <FaSearch size={11} style={{ color: "#666", flexShrink: 0 }} />
@@ -221,33 +250,79 @@ export function SimilarToPage() {
                         </div>
                     </div>
 
-                    {referenceGame && (
-                        <Focusable
-                            onActivate={() => { setReferenceGame(null); setSuggestion(null); }}
-                            style={{
-                                display: "flex", alignItems: "center", gap: 10,
-                                padding: "8px 10px",
-                                backgroundColor: "#4488aa33",
-                                borderRadius: 8,
-                                border: "2px solid #4488aa",
-                                cursor: "pointer",
-                            }}
-                            onFocus={(e: any) => (e.currentTarget.style.borderColor = "white")}
-                            onBlur={(e: any) => (e.currentTarget.style.borderColor = "#4488aa")}
-                        >
-                            <img
-                                src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${referenceGame.is_non_steam && referenceGame.matched_appid ? referenceGame.matched_appid : referenceGame.appid}/capsule_184x69.jpg`}
-                                alt=""
-                                style={{ width: 60, height: 22, borderRadius: 3, objectFit: "cover", flexShrink: 0 }}
-                                onError={(e: any) => (e.target.style.display = "none")}
-                            />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {referenceGame.name}
+                    {hasReferences && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {referenceGames.map(refGame => {
+                                const refAppId = refGame.is_non_steam && refGame.matched_appid ? refGame.matched_appid : refGame.appid;
+                                return (
+                                    <Focusable
+                                        key={refGame.appid}
+                                        onActivate={() => handleRemoveReference(refGame.appid)}
+                                        style={{
+                                            display: "flex", alignItems: "center", gap: 8,
+                                            padding: "4px 8px",
+                                            backgroundColor: "#4488aa22",
+                                            borderRadius: 6,
+                                            border: "2px solid #4488aa44",
+                                            cursor: "pointer",
+                                        }}
+                                        onFocus={(e: any) => (e.currentTarget.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.currentTarget.style.borderColor = "#4488aa44")}
+                                    >
+                                        <img
+                                            src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${refAppId}/capsule_184x69.jpg`}
+                                            alt=""
+                                            style={{ width: 40, height: 15, borderRadius: 2, objectFit: "cover", flexShrink: 0 }}
+                                            onError={(e: any) => (e.target.style.display = "none")}
+                                        />
+                                        <div style={{ flex: 1, minWidth: 0, fontSize: 10, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {refGame.name}
+                                        </div>
+                                        <span style={{ fontSize: 8, color: "#ff6666", flexShrink: 0 }}>✕</span>
+                                    </Focusable>
+                                );
+                            })}
+                            {referenceGames.length > 1 && (
+                                <div style={{ fontSize: 9, color: "#aa8844", fontStyle: "italic", padding: "2px 4px" }}>
+                                    Results will match elements common to all selected games.
                                 </div>
-                                <div style={{ fontSize: 9, color: "#888" }}>Tap to clear selection</div>
-                            </div>
-                            <FaSearch size={10} style={{ color: "#4488aa", flexShrink: 0 }} />
+                            )}
+                            <Focusable
+                                onActivate={handleClearReferences}
+                                style={{
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    gap: 4, padding: "3px 8px",
+                                    backgroundColor: "#ff666611", borderRadius: 4,
+                                    border: "2px solid transparent", cursor: "pointer",
+                                    fontSize: 9, color: "#ff6666",
+                                }}
+                                onFocus={(e: any) => (e.currentTarget.style.borderColor = "white")}
+                                onBlur={(e: any) => (e.currentTarget.style.borderColor = "transparent")}
+                            >
+                                Clear all
+                            </Focusable>
+                        </div>
+                    )}
+
+                    {/* Find button - in left panel for natural up/down navigation */}
+                    {hasReferences && !suggestedGame && (
+                        <Focusable
+                            onActivate={suggesting ? undefined : handleSuggest}
+                            style={{
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                gap: 8, padding: "10px 16px",
+                                backgroundColor: suggesting ? "#333" : "#4488aa",
+                                borderRadius: 8, cursor: suggesting ? "default" : "pointer",
+                                border: "2px solid transparent",
+                                opacity: suggesting ? 0.6 : 1,
+                            }}
+                            onFocus={(e: any) => !suggesting && (e.currentTarget.style.borderColor = "white")}
+                            onBlur={(e: any) => (e.currentTarget.style.borderColor = "transparent")}
+                        >
+                            <FaMagic size={14} style={{ color: "#fff" }} />
+                            <span style={{ fontSize: 12, color: "#fff", fontWeight: 600 }}>
+                                {suggesting ? "Finding..." : "Find Similar Games"}
+                            </span>
                         </Focusable>
                     )}
 
@@ -257,7 +332,7 @@ export function SimilarToPage() {
                         </div>
                     )}
 
-                    {!loading && !referenceGame && (
+                    {!loading && (
                         <div style={{
                             flex: 1,
                             overflowY: "auto",
@@ -265,11 +340,18 @@ export function SimilarToPage() {
                             flexDirection: "column",
                             gap: 3,
                         }}>
-                            <div style={{ fontSize: 10, color: "#555", marginBottom: 4 }}>
-                                {query.trim()
-                                    ? `${filtered.length} match${filtered.length !== 1 ? "es" : ""}`
-                                    : `${allGames.length} games — type to search`
-                                }
+                            <div style={{ fontSize: 10, color: "#555", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                                <span>
+                                    {query.trim()
+                                        ? `${filtered.length} match${filtered.length !== 1 ? "es" : ""}`
+                                        : `${availableGames.length} games — type to search`
+                                    }
+                                </span>
+                                {cachedFilterPool && (
+                                    <span style={{ display: "flex", alignItems: "center", gap: 3, color: "#4488aa", fontSize: 9 }}>
+                                        <FaFilter size={7} /> filtered
+                                    </span>
+                                )}
                             </div>
                             {filtered.map(game => {
                                 const effectiveAppId = game.is_non_steam && game.matched_appid
@@ -279,7 +361,7 @@ export function SimilarToPage() {
                                 return (
                                     <Focusable
                                         key={game.appid}
-                                        onActivate={() => handleSelectReference(game)}
+                                        onActivate={() => handleAddReference(game)}
                                         style={{
                                             display: "flex",
                                             alignItems: "center",
@@ -328,28 +410,6 @@ export function SimilarToPage() {
                         </div>
                     )}
 
-                    {!loading && referenceGame && !suggestedGame && (
-                        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <Focusable
-                                onActivate={suggesting ? undefined : handleSuggest}
-                                style={{
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    gap: 8, padding: "14px 24px",
-                                    backgroundColor: suggesting ? "#333" : "#4488aa",
-                                    borderRadius: 10, cursor: suggesting ? "default" : "pointer",
-                                    border: "2px solid transparent",
-                                    opacity: suggesting ? 0.6 : 1,
-                                }}
-                                onFocus={(e: any) => !suggesting && (e.target.style.borderColor = "white")}
-                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
-                            >
-                                <FaMagic size={14} style={{ color: "#fff" }} />
-                                <span style={{ fontSize: 14, color: "#fff", fontWeight: 600 }}>
-                                    {suggesting ? "Finding..." : "Find Similar Games"}
-                                </span>
-                            </Focusable>
-                        </div>
-                    )}
                 </div>
 
                 {/* Right panel: suggestion result */}

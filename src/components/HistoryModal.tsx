@@ -200,7 +200,7 @@ const HistoryItem = ({
                 <FaChevronRight size={8} style={{ color: '#555', flexShrink: 0 }} />
             </Focusable>
 
-            {/* Right: Action buttons with labels */}
+            {/* Right: Action buttons */}
             <div style={{ display: 'flex', alignItems: 'stretch', borderLeft: '1px solid #ffffff11', flexShrink: 0 }}>
                 <ActionButton
                     onActivate={handlePlayNext}

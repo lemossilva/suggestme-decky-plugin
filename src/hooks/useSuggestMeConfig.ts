@@ -221,6 +221,26 @@ export function useSuggestMeConfig() {
     }
   }, []);
 
+  const setSimilarToFilterPool = useCallback(async (enabled: boolean): Promise<boolean> => {
+    try {
+      const result = await call<[boolean], { success: boolean }>(
+        "save_similar_to_filter_pool",
+        enabled
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          similar_to_filter_pool: enabled,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to save similar_to filter pool setting:", error);
+      return false;
+    }
+  }, []);
+
   const setExcludePlayNextFromSuggestions = useCallback(async (exclude: boolean): Promise<boolean> => {
     try {
       const result = await call<[boolean], { success: boolean }>(
@@ -258,6 +278,7 @@ export function useSuggestMeConfig() {
     setDateFormat,
     setLuckSpinWheelEnabled,
     setSpinWheelSilent,
+    setSimilarToFilterPool,
     setExcludePlayNextFromSuggestions,
     reload: loadConfig,
   };

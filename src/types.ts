@@ -67,6 +67,7 @@ export interface SuggestMeConfig {
   luck_spin_wheel_enabled?: boolean;
   spin_wheel_silent?: boolean;
   exclude_play_next_from_suggestions?: boolean;
+  similar_to_filter_pool?: boolean;
 }
 
 export interface Credentials {

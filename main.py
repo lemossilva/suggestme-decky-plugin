@@ -598,6 +598,7 @@ class Plugin:
             "luck_spin_wheel_enabled": self.settings.get("luck_spin_wheel_enabled", False),
             "spin_wheel_silent": self.settings.get("spin_wheel_silent", False),
             "exclude_play_next_from_suggestions": self.settings.get("exclude_play_next_from_suggestions", False),
+            "similar_to_filter_pool": self.settings.get("similar_to_filter_pool", False),
         }
 
     async def get_credentials(self) -> dict:
@@ -644,6 +645,11 @@ class Plugin:
 
     async def save_exclude_play_next_from_suggestions(self, exclude: bool) -> dict:
         self.settings["exclude_play_next_from_suggestions"] = exclude
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_similar_to_filter_pool(self, enabled: bool) -> dict:
+        self.settings["similar_to_filter_pool"] = enabled
         success = self._save_settings()
         return {"success": success}
 
@@ -883,6 +889,15 @@ class Plugin:
     async def get_library_games(self) -> dict:
         return {
             "games": [g.to_dict() for g in self.library_cache]
+        }
+
+    async def get_filtered_library_games(self, filters: dict, installed_appids: list[int] = None) -> dict:
+        installed_set = set(installed_appids) if installed_appids else set()
+        candidates, _ = self._filter_candidates(
+            list(self.library_cache), filters, installed_set
+        )
+        return {
+            "games": [g.to_dict() for g in candidates]
         }
 
     async def get_review_coverage_stats(self) -> dict:
@@ -2743,27 +2758,34 @@ class Plugin:
 
         return score
 
-    def _build_similar_to_reason(self, game: Game, reference: Game, score: float) -> str:
-        ref_genres = set(g.lower() for g in reference.genres)
-        cand_genres = set(g.lower() for g in game.genres)
-        shared = [g for g in game.genres if g.lower() in ref_genres]
-
-        ref_ctags = set(t.lower() for t in reference.community_tags)
-        shared_ctags = [t for t in game.community_tags if t.lower() in ref_ctags]
+    def _build_similar_to_reason(self, game: Game, references: list[Game], score: float) -> str:
+        all_shared_genres = set()
+        all_shared_ctags = set()
+        for ref in references:
+            ref_genres = set(g.lower() for g in ref.genres)
+            all_shared_genres.update(g for g in game.genres if g.lower() in ref_genres)
+            ref_ctags = set(t.lower() for t in ref.community_tags)
+            all_shared_ctags.update(t for t in game.community_tags if t.lower() in ref_ctags)
 
         parts = []
-        if shared:
-            parts.append(f"shares {', '.join(shared[:2])}")
-        if shared_ctags:
-            parts.append(f"both tagged {', '.join(shared_ctags[:2])}")
+        if all_shared_genres:
+            parts.append(f"shares {', '.join(list(all_shared_genres)[:3])}")
+        if all_shared_ctags:
+            parts.append(f"tagged {', '.join(list(all_shared_ctags)[:2])}")
         if game.playtime_forever == 0:
             parts.append("unplayed")
 
-        if parts:
-            return f"Similar to {reference.name}: " + ", ".join(parts) + "."
-        return f"Similar to {reference.name} based on metadata overlap."
+        ref_names = [r.name for r in references]
+        if len(ref_names) == 1:
+            prefix = f"Similar to {ref_names[0]}"
+        else:
+            prefix = f"Similar to {', '.join(ref_names[:2])}" + (f" +{len(ref_names) - 2}" if len(ref_names) > 2 else "")
 
-    async def get_similar_to_suggestion(self, reference_appid: int, filters: dict, installed_appids: list[int] = None, preset_name: str = None) -> dict:
+        if parts:
+            return f"{prefix}: " + ", ".join(parts) + "."
+        return f"{prefix} based on metadata overlap."
+
+    async def get_similar_to_suggestion(self, reference_appids, filters: dict, installed_appids: list[int] = None, preset_name: str = None) -> dict:
         if not self.library_cache:
             return {
                 "game": None, "candidates_count": 0,
@@ -2771,14 +2793,23 @@ class Plugin:
                 "error": "Library is empty. Please refresh your library first.",
             }
 
-        reference = next((g for g in self.library_cache if g.appid == reference_appid), None)
-        if not reference:
+        if isinstance(reference_appids, int):
+            reference_appids = [reference_appids]
+
+        references = []
+        for appid in reference_appids:
+            ref = next((g for g in self.library_cache if g.appid == appid), None)
+            if ref:
+                references.append(ref)
+
+        if not references:
             return {
                 "game": None, "candidates_count": 0,
                 "mode_used": "similar_to",
-                "error": "Reference game not found in library.",
+                "error": "Reference game(s) not found in library.",
             }
 
+        ref_appid_set = set(r.appid for r in references)
         installed_set = set(installed_appids) if installed_appids else set()
 
         user_collections = None
@@ -2786,7 +2817,7 @@ class Plugin:
             user_collections = await self._get_user_collections()
 
         candidates, excluded_count = self._filter_candidates(self.library_cache, filters, installed_set, user_collections)
-        candidates = [g for g in candidates if g.appid != reference_appid]
+        candidates = [g for g in candidates if g.appid not in ref_appid_set]
 
         mode_history = self._get_mode_history_appids(SuggestMode.SIMILAR_TO.value)
         fresh = [g for g in candidates if g.appid not in mode_history]
@@ -2801,7 +2832,10 @@ class Plugin:
                 "error": "No games match your filters.",
             }
 
-        scored = [(g, self._score_similar_to(g, reference)) for g in fresh]
+        scored = []
+        for g in fresh:
+            avg_score = sum(self._score_similar_to(g, ref) for ref in references) / len(references)
+            scored.append((g, avg_score))
         scored.sort(key=lambda x: x[1], reverse=True)
 
         top_n = max(5, len(scored) * self.similar_to_tuning.top_candidate_percentile // 100)
@@ -2810,14 +2844,15 @@ class Plugin:
         selected = random.choices([g for g, _ in top_pool], weights=weights, k=1)[0]
         sim_score = next(s for g, s in scored if g.appid == selected.appid)
 
+        ref_names = [r.name for r in references]
         extra = {
-            "reference_appid": reference.appid,
-            "reference_name": reference.name,
+            "reference_appids": [r.appid for r in references],
+            "reference_name": ref_names[0] if len(ref_names) == 1 else f"{ref_names[0]} +{len(ref_names) - 1}",
             "similarity_score": round(sim_score, 3),
         }
         self._add_to_history(selected, SuggestMode.SIMILAR_TO.value, filters, preset_name, extra_data=extra)
 
-        reason = self._build_similar_to_reason(selected, reference, sim_score)
+        reason = self._build_similar_to_reason(selected, references, sim_score)
 
         return {
             "game": selected.to_dict(),
@@ -2825,7 +2860,7 @@ class Plugin:
             "excluded_count": excluded_count,
             "mode_used": "similar_to",
             "reason": reason,
-            "reference": reference.to_dict(),
+            "references": [r.to_dict() for r in references],
             "similarity_score": round(sim_score, 3),
             "error": None,
         }

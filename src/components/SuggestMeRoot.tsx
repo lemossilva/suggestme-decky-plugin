@@ -71,9 +71,16 @@ interface TabButtonProps {
   icon: JSX.Element;
   active: boolean;
   onClick: () => void;
+  index: number;
+  total: number;
 }
 
-const TabButton = ({ label, icon, active, onClick }: TabButtonProps) => {
+const TabButton = ({ label, icon, active, onClick, index, total }: TabButtonProps) => {
+  const col = index % 3;
+  const row = Math.floor(index / 3);
+  const lastRow = Math.floor((total - 1) / 3);
+  const showRight = col < 2 && index < total - 1;
+  const showBottom = row < lastRow;
   const [focused, setFocused] = useState(false);
 
   return (
@@ -92,7 +99,11 @@ const TabButton = ({ label, icon, active, onClick }: TabButtonProps) => {
         padding: '4px 4px',
         backgroundColor: active ? '#4488aa' : (focused ? '#ffffff22' : 'transparent'),
         color: active || focused ? '#ffffff' : '#888888',
-        border: focused ? '2px solid #ffffff' : '2px solid transparent',
+        border: 'none',
+        borderRight: showRight ? '1px solid #ffffff15' : 'none',
+        borderBottom: showBottom ? '1px solid #ffffff15' : 'none',
+        outline: focused ? '2px solid #ffffff' : '2px solid transparent',
+        outlineOffset: '-2px',
         borderRadius: 6,
         cursor: 'pointer',
         gap: 4,
@@ -113,7 +124,7 @@ const TabButton = ({ label, icon, active, onClick }: TabButtonProps) => {
 };
 
 export function SuggestMeRoot() {
-  const { config, hasCredentials, setDefaultFilters, setLuckSpinWheelEnabled, setExcludePlayNextFromSuggestions } = useSuggestMeConfig();
+  const { config, hasCredentials, setDefaultFilters, setLuckSpinWheelEnabled, setSimilarToFilterPool, setExcludePlayNextFromSuggestions } = useSuggestMeConfig();
   const { status, availableGenres, availableTags, availableCommunityTags } = useLibraryStatus();
   const { requestSuggestion, clearCurrentSuggestion } =
     useSuggestion();
@@ -155,6 +166,7 @@ export function SuggestMeRoot() {
   });
   const filtersActive = hasActiveFilters(filters);
   const spinWheelEnabled = config.luck_spin_wheel_enabled ?? false;
+  const filterPoolEnabled = config.similar_to_filter_pool ?? false;
   const presetMatchesFilters = activePreset ? filtersEqual(filters, activePreset.filters) : false;
   const presetWasModified = activePreset !== null && !presetMatchesFilters;
   const filterSummary = (activePreset && presetMatchesFilters) ? activePreset.label : getFilterSummary(filters);
@@ -828,16 +840,18 @@ export function SuggestMeRoot() {
                     padding: 4,
                     marginTop: 8,
                     backgroundColor: '#ffffff11',
-                    borderRadius: 12
+                    borderRadius: 12,
                   }}
                 >
-                  {modeOrder.map(mode => (
+                  {modeOrder.map((mode, i) => (
                     <TabButton
                       key={mode}
                       label={TAB_DEFINITIONS[mode].label}
                       icon={TAB_DEFINITIONS[mode].icon}
                       active={activeTab === mode}
                       onClick={() => setSelectedTab(mode)}
+                      index={i}
+                      total={modeOrder.length}
                     />
                   ))}
                 </Focusable>
@@ -847,10 +861,35 @@ export function SuggestMeRoot() {
                   <div style={{ fontSize: 11, color: '#888', textAlign: 'center' }}>
                     {MODE_DESCRIPTIONS[activeTab]}
                   </div>
-                  {(activeTab === 'intelligent' || activeTab === 'fresh_air') && (
+                  {(activeTab === 'intelligent' || activeTab === 'fresh_air' || activeTab === 'similar_to') && (
                     <div style={{ fontSize: 10, color: '#666', textAlign: 'center', fontStyle: 'italic' }}>
                       Tune this algorithm in Settings &gt; Mode Tuning
                     </div>
+                  )}
+                  {activeTab === 'similar_to' && (
+                    <Focusable
+                      onActivate={() => setSimilarToFilterPool(!filterPoolEnabled)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        marginTop: 4,
+                        padding: '6px 12px',
+                        backgroundColor: filterPoolEnabled ? '#4488aa22' : '#ffffff08',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        border: '2px solid transparent',
+                        alignSelf: 'center'
+                      }}
+                      onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                      onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                    >
+                      <FaFilter size={12} style={{ color: filterPoolEnabled ? '#4488aa' : '#666' }} />
+                      <span style={{ fontSize: 10, color: filterPoolEnabled ? '#4488aa' : '#888' }}>
+                        Filter Pool {filterPoolEnabled ? 'ON' : 'OFF'}
+                      </span>
+                    </Focusable>
                   )}
                   {activeTab === 'luck' && (
                     <Focusable
@@ -964,7 +1003,8 @@ export function SuggestMeRoot() {
                           }));
                         }
                         loadHistory();
-                      }
+                      },
+                      filterPoolEnabled
                     );
                   } : handleSuggest}
                   disabled={status.is_refreshing}

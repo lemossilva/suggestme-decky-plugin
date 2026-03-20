@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Focusable, Navigation } from "@decky/ui";
 import { call } from "@decky/api";
-import { FaTrophy, FaArrowLeft, FaExternalLinkAlt, FaGamepad, FaStar, FaStore, FaListUl, FaBan, FaHistory, FaStopCircle, FaRedo, FaUsers } from "react-icons/fa";
+import { FaTrophy, FaArrowLeft, FaExternalLinkAlt, FaGamepad, FaStar, FaStore, FaListUl, FaBan, FaHistory, FaStopCircle, FaRedo, FaUsers, FaTag } from "react-icons/fa";
 import { Game, SuggestFilters, VersusRoundPayload } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
@@ -285,12 +285,8 @@ export function VersusPage() {
     }, [loadInitialPair]);
 
     useEffect(() => {
-        if (cachedFilters) {
-            loadInitialPair();
-        } else {
-            tryResumeSavedState();
-        }
-    }, [loadInitialPair, tryResumeSavedState]);
+        tryResumeSavedState();
+    }, [tryResumeSavedState]);
 
     const fetchNextChallenger = useCallback(async (winner: Game, newSeen: number[]) => {
         if (!cachedFilters) return;
@@ -616,13 +612,13 @@ export function VersusPage() {
                 <div style={{
                     flex: 1,
                     display: "flex",
-                    gap: 24,
-                    alignItems: "center",
+                    gap: 16,
                     transform: `scale(${winnerScale})`,
                     opacity: winnerOpacity,
                     transition: "transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease-out",
+                    overflow: "hidden",
                 }}>
-                    {/* Left: winner card */}
+                    {/* Left: winner card with full metadata */}
                     <div style={{
                         flex: 1,
                         display: "flex",
@@ -631,7 +627,7 @@ export function VersusPage() {
                         borderRadius: 12,
                         overflow: "hidden",
                         border: "2px solid #aa8844",
-                        maxWidth: 500,
+                        minWidth: 0,
                     }}>
                         <div style={{
                             position: "relative",
@@ -640,67 +636,117 @@ export function VersusPage() {
                             backgroundImage: `url(${winnerHeaderUrl})`,
                             backgroundSize: "cover",
                             backgroundPosition: "center",
+                            flexShrink: 0,
                         }}>
                             <div style={{
                                 position: "absolute",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
+                                top: 0, left: 0, right: 0, bottom: 0,
                                 background: "linear-gradient(transparent 50%, rgba(26, 31, 46, 0.9) 100%)",
                             }} />
                             <div style={{
                                 position: "absolute",
-                                top: 10,
-                                left: 10,
+                                top: 8,
+                                left: 8,
                                 display: "flex",
                                 alignItems: "center",
-                                gap: 6,
-                                padding: "4px 12px",
+                                gap: 4,
+                                padding: "3px 10px",
                                 backgroundColor: "#aa8844",
                                 borderRadius: 4,
                             }}>
-                                <FaTrophy size={12} style={{ color: "#fff" }} />
-                                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>WINNER</span>
+                                <FaTrophy size={10} style={{ color: "#fff" }} />
+                                <span style={{ fontSize: 9, fontWeight: 700, color: "#fff" }}>WINNER</span>
                             </div>
                         </div>
 
-                        <div style={{ padding: 14 }}>
-                            <div style={{ fontSize: 18, fontWeight: "bold", color: "white", marginBottom: 8 }}>
+                        <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flex: 1 }}>
+                            <div style={{ fontSize: 16, fontWeight: "bold", color: "white" }}>
                                 {champion.name}
+                                {champion.is_non_steam && (
+                                    <span style={{ marginLeft: 6, fontSize: 9, color: "#6688aa", fontWeight: 400 }}>(Non-Steam)</span>
+                                )}
                             </div>
 
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                                {champion.genres.slice(0, 4).map((genre) => (
-                                    <span key={genre} style={{
-                                        background: "var(--gpColor-Blue)",
-                                        color: "white",
-                                        padding: "2px 8px",
-                                        borderRadius: 4,
-                                        fontSize: 10,
-                                    }}>
-                                        {genre}
-                                    </span>
-                                ))}
-                            </div>
-
-                            <div style={{ display: "flex", gap: 16, fontSize: 11, color: "#aaa", marginBottom: 8 }}>
-                                <span><FaGamepad style={{ marginRight: 4 }} />{formatPlaytime(champion.playtime_forever)}</span>
+                            <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#aaa" }}>
+                                <span><FaGamepad style={{ marginRight: 3 }} />{formatPlaytime(champion.playtime_forever)}</span>
                                 <span>Last: {formatLastPlayed(champion.rtime_last_played)}</span>
+                            </div>
+
+                            {champion.genres.length > 0 && (
+                                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                    {champion.genres.map((genre) => (
+                                        <span key={genre} style={{
+                                            fontSize: 9, padding: "2px 6px",
+                                            backgroundColor: "#4488aa33", color: "#88ccff",
+                                            borderRadius: 4,
+                                        }}>
+                                            {genre}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+
+                            {champion.community_tags && champion.community_tags.length > 0 && (
+                                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                                    <FaTag size={8} style={{ color: "#666" }} />
+                                    {champion.community_tags.slice(0, 5).map((tag) => (
+                                        <span key={tag} style={{
+                                            fontSize: 9, padding: "2px 6px",
+                                            backgroundColor: "#aa886622", color: "#ddaa77",
+                                            borderRadius: 4,
+                                        }}>
+                                            {tag}
+                                        </span>
+                                    ))}
+                                    {champion.community_tags.length > 5 && (
+                                        <span style={{ fontSize: 9, color: "#666" }}>+{champion.community_tags.length - 5}</span>
+                                    )}
+                                </div>
+                            )}
+
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {champion.deck_status && (
+                                    <span style={{
+                                        fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
+                                        backgroundColor: champion.deck_status.toLowerCase() === "verified" ? "#88ff8822" : champion.deck_status.toLowerCase() === "playable" ? "#ffaa0022" : "#ff666622",
+                                        color: champion.deck_status.toLowerCase() === "verified" ? "#88ff88" : champion.deck_status.toLowerCase() === "playable" ? "#ffaa00" : "#ff6666",
+                                    }}>
+                                        Deck: {champion.deck_status}
+                                    </span>
+                                )}
+                                {champion.steam_review_description && (
+                                    <span style={{
+                                        fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
+                                        backgroundColor: "#ffcc0022", color: "#ffcc00",
+                                        display: "flex", alignItems: "center", gap: 3,
+                                    }}>
+                                        <FaStar size={8} />
+                                        {champion.steam_review_description}
+                                    </span>
+                                )}
+                                {champion.metacritic_score > 0 && (
+                                    <span style={{
+                                        fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
+                                        backgroundColor: champion.metacritic_score >= 75 ? "#66cc3322" : champion.metacritic_score >= 50 ? "#ffcc3322" : "#ff666622",
+                                        color: champion.metacritic_score >= 75 ? "#66cc33" : champion.metacritic_score >= 50 ? "#ffcc33" : "#ff6666",
+                                    }}>
+                                        MC: {champion.metacritic_score}
+                                    </span>
+                                )}
                             </div>
 
                             <div style={{
                                 display: "flex",
                                 alignItems: "center",
-                                gap: 8,
-                                padding: "8px 12px",
+                                gap: 6,
+                                padding: "5px 10px",
                                 backgroundColor: "#aa884422",
                                 borderRadius: 6,
-                                fontSize: 12,
+                                fontSize: 10,
                                 color: "#aa8844",
                                 fontWeight: 600,
                             }}>
-                                <FaTrophy size={14} />
+                                <FaTrophy size={10} />
                                 {poolExhausted
                                     ? `Defeated all ${rounds} challengers — pool exhausted!`
                                     : `Defeated ${rounds} challenger${rounds !== 1 ? "s" : ""}`
@@ -713,14 +759,15 @@ export function VersusPage() {
                     <div style={{
                         display: "flex",
                         flexDirection: "column",
-                        gap: 10,
-                        minWidth: 160,
+                        gap: 8,
+                        minWidth: 140,
+                        justifyContent: "center",
                     }}>
                         <Focusable
                             onActivate={handleLaunchGame}
                             style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
-                                gap: 8, padding: "12px 16px",
+                                gap: 8, padding: "10px 12px",
                                 backgroundColor: "#4488aa", borderRadius: 8,
                                 border: "2px solid transparent", cursor: "pointer",
                             }}
@@ -740,7 +787,7 @@ export function VersusPage() {
                                 }}
                                 style={{
                                     display: "flex", alignItems: "center", justifyContent: "center",
-                                    gap: 8, padding: "12px 16px",
+                                    gap: 8, padding: "10px 12px",
                                     backgroundColor: "#1a6e9a", borderRadius: 8,
                                     border: "2px solid transparent", cursor: "pointer",
                                 }}
@@ -756,7 +803,7 @@ export function VersusPage() {
                             onActivate={() => addToPlayNext(champion)}
                             style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
-                                gap: 8, padding: "12px 16px",
+                                gap: 8, padding: "10px 12px",
                                 backgroundColor: isInPlayNext(champion.appid) ? "#88aa8833" : "#ffffff11",
                                 borderRadius: 8,
                                 border: "2px solid transparent", cursor: "pointer",
@@ -766,7 +813,7 @@ export function VersusPage() {
                         >
                             <FaListUl size={12} style={{ color: isInPlayNext(champion.appid) ? "#88aa88" : "#aaa" }} />
                             <span style={{ fontSize: 12, color: isInPlayNext(champion.appid) ? "#88aa88" : "#aaa", fontWeight: 600 }}>
-                                {isInPlayNext(champion.appid) ? "In Play Next" : "Add to Play Next"}
+                                {isInPlayNext(champion.appid) ? "In Play Next" : "Play Next"}
                             </span>
                         </Focusable>
 
@@ -774,7 +821,7 @@ export function VersusPage() {
                             onActivate={handlePlayAgain}
                             style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
-                                gap: 8, padding: "12px 16px",
+                                gap: 8, padding: "10px 12px",
                                 backgroundColor: "#aa884433",
                                 borderRadius: 8,
                                 border: "2px solid transparent", cursor: "pointer",
@@ -783,7 +830,7 @@ export function VersusPage() {
                             onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                         >
                             <FaRedo size={12} style={{ color: "#aa8844" }} />
-                            <span style={{ fontSize: 12, color: "#aa8844", fontWeight: 600 }}>Play Again</span>
+                            <span style={{ fontSize: 12, color: "#aa8844", fontWeight: 600 }}>New Battle</span>
                         </Focusable>
                     </div>
                 </div>
