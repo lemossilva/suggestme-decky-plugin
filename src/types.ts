@@ -110,6 +110,8 @@ export interface HistoryEntry {
 export interface RefreshProgress {
   current: number;
   total: number;
+  phase?: "fetch_list" | "processing" | "metadata" | "non_steam";
+  phase_label?: string;
 }
 
 export const DEFAULT_FILTERS: SuggestFilters = {
@@ -197,6 +199,8 @@ export interface IntelligentTuning {
   not_recently_played_bonus: number;
   top_candidate_percentile: number;
   review_score_weight: number;
+  rarity_boost_enabled: boolean;
+  rarity_boost_strength: number;
 }
 
 export interface FreshAirTuning {
@@ -207,6 +211,8 @@ export interface FreshAirTuning {
   novel_genre_bonus: number;
   top_candidate_percentile: number;
   review_score_weight: number;
+  rarity_boost_enabled: boolean;
+  rarity_boost_strength: number;
 }
 
 export interface ModeTuning {
@@ -228,6 +234,8 @@ export const DEFAULT_INTELLIGENT_TUNING: IntelligentTuning = {
   not_recently_played_bonus: 0.2,
   top_candidate_percentile: 20,
   review_score_weight: 0.15,
+  rarity_boost_enabled: true,
+  rarity_boost_strength: 0.5,
 };
 
 export const DEFAULT_FRESH_AIR_TUNING: FreshAirTuning = {
@@ -238,6 +246,8 @@ export const DEFAULT_FRESH_AIR_TUNING: FreshAirTuning = {
   novel_genre_bonus: 0.2,
   top_candidate_percentile: 20,
   review_score_weight: 0.15,
+  rarity_boost_enabled: true,
+  rarity_boost_strength: 0.5,
 };
 
 export interface SpinWheelPayload {
@@ -266,6 +276,8 @@ export interface SimilarToTuning {
   community_tag_weight: number;
   review_proximity_weight: number;
   top_candidate_percentile: number;
+  rarity_boost_enabled: boolean;
+  rarity_boost_strength: number;
 }
 
 export const DEFAULT_SIMILAR_TO_TUNING: SimilarToTuning = {
@@ -274,6 +286,8 @@ export const DEFAULT_SIMILAR_TO_TUNING: SimilarToTuning = {
   community_tag_weight: 0.4,
   review_proximity_weight: 0.15,
   top_candidate_percentile: 20,
+  rarity_boost_enabled: true,
+  rarity_boost_strength: 0.5,
 };
 
 export interface VersusRoundPayload {

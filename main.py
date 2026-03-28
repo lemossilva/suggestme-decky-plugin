@@ -10,6 +10,7 @@ import aiohttp
 from dataclasses import dataclass, asdict, field
 from typing import Optional
 from enum import Enum
+import math
 
 import decky
 
@@ -186,6 +187,8 @@ class IntelligentTuning:
     not_recently_played_bonus: float = 0.2
     top_candidate_percentile: int = 20
     review_score_weight: float = 0.15
+    rarity_boost_enabled: bool = True
+    rarity_boost_strength: float = 0.5
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -206,6 +209,8 @@ class IntelligentTuning:
             not_recently_played_bonus=data.get("not_recently_played_bonus", 0.2),
             top_candidate_percentile=data.get("top_candidate_percentile", 20),
             review_score_weight=data.get("review_score_weight", 0.15),
+            rarity_boost_enabled=data.get("rarity_boost_enabled", True),
+            rarity_boost_strength=data.get("rarity_boost_strength", 0.5),
         )
 
 
@@ -218,6 +223,8 @@ class FreshAirTuning:
     novel_genre_bonus: float = 0.2
     top_candidate_percentile: int = 20
     review_score_weight: float = 0.15
+    rarity_boost_enabled: bool = True
+    rarity_boost_strength: float = 0.5
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -232,6 +239,8 @@ class FreshAirTuning:
             novel_genre_bonus=data.get("novel_genre_bonus", 0.2),
             top_candidate_percentile=data.get("top_candidate_percentile", 20),
             review_score_weight=data.get("review_score_weight", 0.15),
+            rarity_boost_enabled=data.get("rarity_boost_enabled", True),
+            rarity_boost_strength=data.get("rarity_boost_strength", 0.5),
         )
 
 
@@ -242,6 +251,8 @@ class SimilarToTuning:
     community_tag_weight: float = 0.4
     review_proximity_weight: float = 0.15
     top_candidate_percentile: int = 20
+    rarity_boost_enabled: bool = True
+    rarity_boost_strength: float = 0.5
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -254,6 +265,8 @@ class SimilarToTuning:
             community_tag_weight=data.get("community_tag_weight", 0.4),
             review_proximity_weight=data.get("review_proximity_weight", 0.15),
             top_candidate_percentile=data.get("top_candidate_percentile", 20),
+            rarity_boost_enabled=data.get("rarity_boost_enabled", True),
+            rarity_boost_strength=data.get("rarity_boost_strength", 0.5),
         )
 
 
@@ -302,14 +315,24 @@ DEFAULT_SETTINGS = {
 
 
 class Plugin:
-    settings: dict = {}
     library_cache: list[Game] = []
-    history: list[SuggestionHistoryEntry] = []
-    play_next_list: list[PlayNextEntry] = []
-    excluded_games: list[ExcludedGame] = []
-    last_refresh: Optional[int] = None
+    last_refresh: int = 0
     is_refreshing: bool = False
-    refresh_error: Optional[str] = None
+    refresh_error: str = None
+    settings: dict = {}
+    history: list[SuggestionHistoryEntry] = []
+    play_next_list: list[Game] = []
+    excluded_games: list[Game] = []
+    versus_state: dict = None
+    _auto_sync_task: asyncio.Task = None
+    _shared_session: aiohttp.ClientSession = None
+    
+    guided_recency_weight: float = 0.3
+    guided_playtime_weight: float = 0.4
+    intelligent_recency_weight: float = 0.5
+    intelligent_playtime_weight: float = 0.3
+    fresh_air_novelty_bonus: float = 0.4
+    fresh_air_anti_profile_weight: float = 0.3
     intelligent_tuning: IntelligentTuning = DEFAULT_INTELLIGENT_TUNING
     fresh_air_tuning: FreshAirTuning = DEFAULT_FRESH_AIR_TUNING
     similar_to_tuning: SimilarToTuning = DEFAULT_SIMILAR_TO_TUNING
@@ -574,12 +597,46 @@ class Plugin:
                 decky.logger.info("Auto-populated Steam ID from local files")
         
         decky.logger.info(f"Loaded {len(self.library_cache)} games from cache")
+        
+        if self.library_cache and self.settings.get("steam_api_key") and self.settings.get("steam_id"):
+            decky.logger.info("Scheduling auto-sync background task...")
+            self._auto_sync_task = asyncio.create_task(self._run_auto_sync())
+
+    async def _run_auto_sync(self):
+        """Background task for auto-sync on load. Runs after plugin initialization."""
+        try:
+            await asyncio.sleep(2)
+            result = await self.auto_sync_on_load()
+            if result.get("new_games", 0) > 0:
+                await decky.emit("suggestme_auto_sync_complete", {
+                    "new_games": result["new_games"],
+                    "total_games": result.get("total_games", 0),
+                    "silent": False,
+                })
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            decky.logger.error(f"Auto-sync background task failed: {e}")
 
     async def _unload(self):
+        decky.logger.info("SuggestMe plugin unloading...")
+        if self._auto_sync_task and not self._auto_sync_task.done():
+            self._auto_sync_task.cancel()
+        if self._shared_session and not self._shared_session.closed:
+            await self._shared_session.close()
+            self._shared_session = None
         decky.logger.info("SuggestMe plugin unloaded")
 
     async def _uninstall(self):
         decky.logger.info("SuggestMe plugin uninstalled")
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Get or create a shared aiohttp session for connection reuse."""
+        if self._shared_session is None or self._shared_session.closed:
+            ssl_ctx = _create_ssl_context()
+            connector = aiohttp.TCPConnector(ssl=ssl_ctx, limit=20)
+            self._shared_session = aiohttp.ClientSession(connector=connector)
+        return self._shared_session
 
     async def get_config(self) -> dict:
         api_key = self.settings.get("steam_api_key", "")
@@ -959,12 +1016,12 @@ class Plugin:
                 data = await response.json()
                 return data.get("response", {}).get("games", [])
 
-    async def _fetch_game_details(self, appid: int) -> dict:
+    async def _fetch_game_details(self, appid: int, session: aiohttp.ClientSession = None) -> dict:
         url = f"https://store.steampowered.com/api/appdetails"
         params = {"appids": appid}
-        ssl_ctx = _create_ssl_context()
-        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
-        async with aiohttp.ClientSession(connector=connector) as session:
+        try:
+            if session is None:
+                session = await self._get_session()
             async with session.get(url, params=params) as response:
                 if response.status != 200:
                     return {}
@@ -973,6 +1030,9 @@ class Plugin:
                 if app_data.get("success"):
                     return app_data.get("data", {})
                 return {}
+        except Exception as e:
+            decky.logger.debug(f"Failed to fetch game details for {appid}: {e}")
+            return {}
 
     async def _fetch_rawg_metacritic(self, appid: int, game_name: str) -> dict:
         """Fetch Metacritic score from RAWG API using Steam appid as primary lookup."""
@@ -1040,18 +1100,17 @@ class Plugin:
             decky.logger.debug(f"RAWG API error for {game_name}: {e}")
             return {}
 
-    async def _fetch_steam_review_summary(self, appid: int) -> dict:
+    async def _fetch_steam_review_summary(self, appid: int, session: aiohttp.ClientSession = None) -> dict:
         url = f"https://store.steampowered.com/appreviews/{appid}"
         params = {"json": "1", "language": "all", "num_per_page": "0"}
-        ssl_ctx = _create_ssl_context()
-        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
         try:
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}) as response:
-                    if response.status != 200:
-                        return {}
-                    data = await response.json()
-                    return data.get("query_summary", {})
+            if session is None:
+                session = await self._get_session()
+            async with session.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}) as response:
+                if response.status != 200:
+                    return {}
+                data = await response.json()
+                return data.get("query_summary", {})
         except Exception as e:
             decky.logger.debug(f"Failed to fetch review summary for {appid}: {e}")
             return {}
@@ -1119,60 +1178,57 @@ class Plugin:
             decky.logger.warning(f"Steam store search failed for '{game_name}': {e}")
         return None
 
-    async def _fetch_steam_tags(self, appid: int) -> list[str]:
+    async def _fetch_steam_tags(self, appid: int, session: aiohttp.ClientSession = None) -> list[str]:
         try:
             url = f"https://store.steampowered.com/app/{appid}"
-            ssl_ctx = _create_ssl_context()
-            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(url, headers={"Accept-Language": "en"}) as response:
-                    if response.status == 200:
-                        html = await response.text()
-                        tag_pattern = r'<a[^>]*class="app_tag"[^>]*>\s*([^<]+?)\s*</a>'
-                        matches = re.findall(tag_pattern, html)
-                        tags = [self._clean_text(t.strip()) for t in matches[:15]]
-                        return [t for t in tags if t and self._is_valid_label(t)]
+            if session is None:
+                session = await self._get_session()
+            async with session.get(url, headers={"Accept-Language": "en"}) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    tag_pattern = r'<a[^>]*class="app_tag"[^>]*>\s*([^<]+?)\s*</a>'
+                    matches = re.findall(tag_pattern, html)
+                    tags = [self._clean_text(t.strip()) for t in matches[:15]]
+                    return [t for t in tags if t and self._is_valid_label(t)]
         except Exception as e:
             decky.logger.debug(f"Steam tags fetch failed for {appid}: {e}")
         return []
 
-    async def _fetch_protondb_tier(self, appid: int) -> str:
+    async def _fetch_protondb_tier(self, appid: int, session: aiohttp.ClientSession = None) -> str:
         try:
             url = f"https://www.protondb.com/api/v1/reports/summaries/{appid}.json"
-            ssl_ctx = _create_ssl_context()
-            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        tier = data.get("tier", "")
-                        if tier:
-                            return tier.lower()
-                        return ""
+            if session is None:
+                session = await self._get_session()
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    tier = data.get("tier", "")
+                    if tier:
+                        return tier.lower()
                     return ""
+                return ""
         except Exception as e:
             decky.logger.debug(f"ProtonDB fetch failed for {appid}: {e}")
             return ""
 
-    async def _fetch_deck_status(self, appid: int) -> str:
+    async def _fetch_deck_status(self, appid: int, session: aiohttp.ClientSession = None) -> str:
         try:
             url = f"https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?nAppID={appid}"
-            ssl_ctx = _create_ssl_context()
-            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        results = data.get("results", {})
-                        category = results.get("resolved_category", 0)
-                        if category == 3:
-                            return "verified"
-                        elif category == 2:
-                            return "playable"
-                        elif category == 1:
-                            return "unsupported"
-                        return ""
+            if session is None:
+                session = await self._get_session()
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    results = data.get("results", {})
+                    category = results.get("resolved_category", 0)
+                    if category == 3:
+                        return "verified"
+                    elif category == 2:
+                        return "playable"
+                    elif category == 1:
+                        return "unsupported"
                     return ""
+                return ""
         except Exception as e:
             decky.logger.debug(f"Deck status fetch failed for {appid}: {e}")
             return ""
@@ -1321,18 +1377,40 @@ class Plugin:
         except Exception:
             pass
 
-    async def _fetch_game_metadata_batch(self, games: list[Game], batch_size: int = 5, start_from: int = 0) -> None:
+    def _game_has_metadata(self, game: Game) -> bool:
+        """Check if a game already has cached metadata (genres, tags, etc.)"""
+        return bool(game.genres) or bool(game.tags) or bool(game.community_tags) or bool(game.deck_status)
+
+    async def _fetch_game_metadata_batch(self, games: list[Game], batch_size: int = 25, start_from: int = 0, skip_if_has_metadata: bool = False) -> None:
         use_rawg = bool(self.settings.get("rawg_api_key", ""))
+        
+        # Filter games that need metadata fetching
+        if skip_if_has_metadata:
+            games_to_fetch = [g for g in games if not self._game_has_metadata(g)]
+            skipped_count = len(games) - len(games_to_fetch)
+            if skipped_count > 0:
+                decky.logger.info(f"Skipping {skipped_count} games with existing metadata")
+            games = games_to_fetch
+        
+        if not games:
+            return
+        
+        decky.logger.info(f"Fetching metadata for {len(games)} games (batch_size={batch_size})...")
+        session = await self._get_session()
         
         async def fetch_single(game: Game):
             try:
                 fetch_appid = game.matched_appid if game.is_non_steam and game.matched_appid else game.appid
+                
+                # Skip RAWG call if game already has metacritic score (persisted from previous sync)
+                need_rawg = use_rawg and game.metacritic_score == 0
+                
                 details, review_summary, deck_status, protondb, steam_tags = await asyncio.gather(
-                    self._fetch_game_details(fetch_appid),
-                    self._fetch_steam_review_summary(fetch_appid),
-                    self._fetch_deck_status(fetch_appid),
-                    self._fetch_protondb_tier(fetch_appid),
-                    self._fetch_steam_tags(fetch_appid),
+                    self._fetch_game_details(fetch_appid, session),
+                    self._fetch_steam_review_summary(fetch_appid, session),
+                    self._fetch_deck_status(fetch_appid, session),
+                    self._fetch_protondb_tier(fetch_appid, session),
+                    self._fetch_steam_tags(fetch_appid, session),
                     return_exceptions=True
                 )
                 if isinstance(details, dict):
@@ -1345,8 +1423,8 @@ class Plugin:
                         game.metacritic_score = metacritic.get("score", 0) or 0
                         game.metacritic_url = metacritic.get("url", "") or ""
                 
-                # Fallback to RAWG API if Steam doesn't have Metacritic data
-                if game.metacritic_score == 0 and use_rawg:
+                # Fallback to RAWG API only if we still don't have Metacritic data after Steam fetch
+                if game.metacritic_score == 0 and need_rawg:
                     rawg_data = await self._fetch_rawg_metacritic(fetch_appid, game.name)
                     if rawg_data:
                         game.metacritic_score = rawg_data.get("score", 0) or 0
@@ -1367,15 +1445,16 @@ class Plugin:
         for i in range(start_from, len(games), batch_size):
             batch = games[i:i + batch_size]
             await asyncio.gather(*[fetch_single(g) for g in batch])
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             
             current_progress = min(i + batch_size, len(games))
-            if current_progress % 25 == 0 or current_progress == len(games):
-                await decky.emit("suggestme_refresh_progress", {
-                    "current": current_progress,
-                    "total": len(games),
-                })
-                self._save_sync_progress(current_progress, len(games))
+            await decky.emit("suggestme_refresh_progress", {
+                "current": current_progress,
+                "total": len(games),
+                "phase": "metadata",
+                "phase_label": "Fetching metadata",
+            })
+            self._save_sync_progress(current_progress, len(games))
 
     def _clean_text(self, text: str) -> str:
         if not text:
@@ -1401,9 +1480,23 @@ class Plugin:
         })
 
         try:
+            await decky.emit("suggestme_refresh_progress", {
+                "current": 0,
+                "total": 0,
+                "phase": "fetch_list",
+                "phase_label": "Fetching game list from Steam...",
+            })
+            
             decky.logger.info("Fetching owned games from Steam API...")
             raw_games = await self._fetch_owned_games(api_key, steam_id)
             decky.logger.info(f"Found {len(raw_games)} games")
+
+            await decky.emit("suggestme_refresh_progress", {
+                "current": 0,
+                "total": len(raw_games),
+                "phase": "processing",
+                "phase_label": f"Processing {len(raw_games)} games...",
+            })
 
             games: list[Game] = []
             skipped_playtests = 0
@@ -1425,7 +1518,7 @@ class Plugin:
             if skipped_playtests > 0:
                 decky.logger.info(f"Skipped {skipped_playtests} playtest entries")
 
-            await self._fetch_game_metadata_batch(games, batch_size=5)
+            await self._fetch_game_metadata_batch(games)
             self._clear_sync_progress()
 
             existing_non_steam = [g for g in self.library_cache if g.is_non_steam]
@@ -1623,6 +1716,57 @@ class Plugin:
         )
         return sorted_games[:n]
 
+    def _compute_rarity_weights(self) -> dict:
+        """
+        Compute rarity weights for genres, tags, and community tags.
+        Rare metadata gets higher weights using inverse frequency.
+        Returns dict with 'genres', 'tags', 'community_tags' keys, each mapping label -> weight.
+        """
+        
+        genre_counts: dict[str, int] = {}
+        tag_counts: dict[str, int] = {}
+        community_tag_counts: dict[str, int] = {}
+        
+        total_games = len(self.library_cache)
+        if total_games == 0:
+            return {"genres": {}, "tags": {}, "community_tags": {}}
+        
+        for game in self.library_cache:
+            for genre in game.genres:
+                g = genre.lower()
+                genre_counts[g] = genre_counts.get(g, 0) + 1
+            for tag in game.tags:
+                t = tag.lower()
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+            for ctag in game.community_tags:
+                ct = ctag.lower()
+                community_tag_counts[ct] = community_tag_counts.get(ct, 0) + 1
+        
+        def compute_idf_weights(counts: dict[str, int]) -> dict[str, float]:
+            weights = {}
+            for label, count in counts.items():
+                idf = math.log(total_games / count) if count > 0 else 0
+                weights[label] = 1.0 + idf
+            if weights:
+                max_w = max(weights.values())
+                min_w = min(weights.values())
+                range_w = max_w - min_w if max_w != min_w else 1.0
+                for label in weights:
+                    weights[label] = (weights[label] - min_w) / range_w
+            return weights
+        
+        return {
+            "genres": compute_idf_weights(genre_counts),
+            "tags": compute_idf_weights(tag_counts),
+            "community_tags": compute_idf_weights(community_tag_counts),
+        }
+
+    def _apply_rarity_boost(self, base_weight: float, label: str, rarity_weights: dict, strength: float) -> float:
+        """Apply rarity boost to a base weight. Higher rarity = higher final weight."""
+        rarity = rarity_weights.get(label, 0.5)
+        boost = 1.0 + (rarity * strength)
+        return base_weight * boost
+
     def _compute_preference_profile(self, recent_games: list[Game], most_played: list[Game] = None) -> dict:
         tuning = self.intelligent_tuning
         genre_scores: dict[str, float] = {}
@@ -1664,21 +1808,36 @@ class Plugin:
             "community_tags": {k: v / total for k, v in community_tag_scores.items()},
         }
 
-    def _score_intelligent(self, game: Game, profile: dict) -> float:
+    def _score_intelligent(self, game: Game, profile: dict, rarity_weights: dict = None) -> float:
         tuning = self.intelligent_tuning
         score = 0.0
         genre_profile = profile.get("genres", {})
         tag_profile = profile.get("tags", {})
         community_tag_profile = profile.get("community_tags", {})
+        
+        use_rarity = tuning.rarity_boost_enabled and rarity_weights
+        rarity_strength = tuning.rarity_boost_strength
 
         for genre in game.genres:
-            score += genre_profile.get(genre.lower(), 0) * tuning.genre_score_weight
+            g = genre.lower()
+            base_score = genre_profile.get(g, 0) * tuning.genre_score_weight
+            if use_rarity:
+                base_score = self._apply_rarity_boost(base_score, g, rarity_weights.get("genres", {}), rarity_strength)
+            score += base_score
 
         for tag in game.tags:
-            score += tag_profile.get(tag.lower(), 0) * tuning.tag_score_weight
+            t = tag.lower()
+            base_score = tag_profile.get(t, 0) * tuning.tag_score_weight
+            if use_rarity:
+                base_score = self._apply_rarity_boost(base_score, t, rarity_weights.get("tags", {}), rarity_strength)
+            score += base_score
 
         for ctag in game.community_tags:
-            score += community_tag_profile.get(ctag.lower(), 0) * tuning.community_tag_score_weight
+            ct = ctag.lower()
+            base_score = community_tag_profile.get(ct, 0) * tuning.community_tag_score_weight
+            if use_rarity:
+                base_score = self._apply_rarity_boost(base_score, ct, rarity_weights.get("community_tags", {}), rarity_strength)
+            score += base_score
 
         if game.playtime_forever == 0:
             score += tuning.unplayed_bonus
@@ -1694,21 +1853,39 @@ class Plugin:
 
         return score
 
-    def _score_fresh_air(self, game: Game, profile: dict) -> float:
+    def _score_fresh_air(self, game: Game, profile: dict, rarity_weights: dict = None) -> float:
         tuning = self.fresh_air_tuning
         score = 1.0
         genre_profile = profile.get("genres", {})
         tag_profile = profile.get("tags", {})
         community_tag_profile = profile.get("community_tags", {})
+        
+        use_rarity = tuning.rarity_boost_enabled and rarity_weights
+        rarity_strength = tuning.rarity_boost_strength
 
         for genre in game.genres:
-            score -= genre_profile.get(genre.lower(), 0) * tuning.genre_penalty_multiplier
+            g = genre.lower()
+            penalty = genre_profile.get(g, 0) * tuning.genre_penalty_multiplier
+            if use_rarity:
+                rarity = rarity_weights.get("genres", {}).get(g, 0.5)
+                penalty *= (1.0 - rarity * rarity_strength * 0.5)
+            score -= penalty
 
         for tag in game.tags:
-            score -= tag_profile.get(tag.lower(), 0) * tuning.tag_penalty_multiplier
+            t = tag.lower()
+            penalty = tag_profile.get(t, 0) * tuning.tag_penalty_multiplier
+            if use_rarity:
+                rarity = rarity_weights.get("tags", {}).get(t, 0.5)
+                penalty *= (1.0 - rarity * rarity_strength * 0.5)
+            score -= penalty
 
         for ctag in game.community_tags:
-            score -= community_tag_profile.get(ctag.lower(), 0) * tuning.community_tag_penalty_multiplier
+            ct = ctag.lower()
+            penalty = community_tag_profile.get(ct, 0) * tuning.community_tag_penalty_multiplier
+            if use_rarity:
+                rarity = rarity_weights.get("community_tags", {}).get(ct, 0.5)
+                penalty *= (1.0 - rarity * rarity_strength * 0.5)
+            score -= penalty
 
         if game.playtime_forever == 0:
             score += tuning.unplayed_bonus
@@ -1849,7 +2026,8 @@ class Plugin:
             recent_games = self._get_recent_games(tuning.recent_games_count)
             most_played = self._get_most_played_games(tuning.most_played_count)
             profile = self._compute_preference_profile(recent_games, most_played)
-            scored = [(g, self._score_intelligent(g, profile)) for g in fresh_candidates]
+            rarity_weights = self._compute_rarity_weights() if tuning.rarity_boost_enabled else None
+            scored = [(g, self._score_intelligent(g, profile, rarity_weights)) for g in fresh_candidates]
             scored.sort(key=lambda x: x[1], reverse=True)
             top_n = max(5, len(scored) * tuning.top_candidate_percentile // 100)
             top_pool = scored[:top_n]
@@ -1862,7 +2040,8 @@ class Plugin:
             recent_games = self._get_recent_games(tuning_int.recent_games_count)
             most_played = self._get_most_played_games(tuning_int.most_played_count)
             profile = self._compute_preference_profile(recent_games, most_played)
-            scored = [(g, self._score_fresh_air(g, profile)) for g in fresh_candidates]
+            rarity_weights = self._compute_rarity_weights() if tuning_fa.rarity_boost_enabled else None
+            scored = [(g, self._score_fresh_air(g, profile, rarity_weights)) for g in fresh_candidates]
             scored.sort(key=lambda x: x[1], reverse=True)
             top_n = max(5, len(scored) * tuning_fa.top_candidate_percentile // 100)
             top_pool = scored[:top_n]
@@ -2182,6 +2361,13 @@ class Plugin:
         })
 
         try:
+            await decky.emit("suggestme_refresh_progress", {
+                "current": 0,
+                "total": 0,
+                "phase": "fetch_list",
+                "phase_label": "Fetching Steam library...",
+            })
+            
             decky.logger.info("Phase 1: Scanning Steam library...")
             raw_games = await self._fetch_owned_games(api_key, steam_id)
             decky.logger.info(f"Found {len(raw_games)} Steam games")
@@ -2198,6 +2384,13 @@ class Plugin:
                 )
                 steam_games.append(game)
 
+            await decky.emit("suggestme_refresh_progress", {
+                "current": 0,
+                "total": 0,
+                "phase": "non_steam",
+                "phase_label": "Scanning Non-Steam games...",
+            })
+            
             decky.logger.info("Phase 1: Scanning Non-Steam games...")
             detected = await self._detect_non_steam_games()
             
@@ -2233,6 +2426,15 @@ class Plugin:
 
             decky.logger.info("Phase 2: Matching Non-Steam games to Steam store...")
             matched_count = 0
+            
+            if non_steam_games:
+                await decky.emit("suggestme_refresh_progress", {
+                    "current": 0,
+                    "total": len(non_steam_games),
+                    "phase": "non_steam",
+                    "phase_label": f"Matching Non-Steam games (0/{len(non_steam_games)})...",
+                })
+            
             for i, game in enumerate(non_steam_games):
                 match = await self._search_steam_store(game.original_name)
                 if match:
@@ -2242,11 +2444,12 @@ class Plugin:
                 else:
                     game.match_status = "unmatched"
                 
-                if (i + 1) % 10 == 0 or i == len(non_steam_games) - 1:
-                    await decky.emit("suggestme_non_steam_progress", {
+                if (i + 1) % 5 == 0 or i == len(non_steam_games) - 1:
+                    await decky.emit("suggestme_refresh_progress", {
                         "current": i + 1,
                         "total": len(non_steam_games),
-                        "name": game.name
+                        "phase": "non_steam",
+                        "phase_label": f"Matching Non-Steam games ({i + 1}/{len(non_steam_games)})...",
                     })
                 await asyncio.sleep(0.05)
 
@@ -2257,7 +2460,7 @@ class Plugin:
             all_games_to_process.extend([g for g in non_steam_games if g.matched_appid])
 
             decky.logger.info(f"Phase 3: Fetching metadata for {len(all_games_to_process)} games...")
-            await self._fetch_game_metadata_batch(all_games_to_process, batch_size=5)
+            await self._fetch_game_metadata_batch(all_games_to_process)
             self._clear_sync_progress()
 
             self.library_cache = steam_games + non_steam_games
@@ -2385,7 +2588,7 @@ class Plugin:
 
             if all_new_games:
                 decky.logger.info(f"Fetching metadata for {len(all_new_games)} new games...")
-                await self._fetch_game_metadata_batch(all_new_games, batch_size=5)
+                await self._fetch_game_metadata_batch(all_new_games)
 
             self.library_cache.extend(new_steam_games)
             self.library_cache.extend(new_non_steam_games)
@@ -2727,9 +2930,12 @@ class Plugin:
         self._add_to_history(game, SuggestMode.VERSUS.value, filters, preset_name, extra_data=extra)
         return {"success": True}
 
-    def _score_similar_to(self, candidate: Game, reference: Game) -> float:
+    def _score_similar_to(self, candidate: Game, reference: Game, rarity_weights: dict = None) -> float:
         tuning = self.similar_to_tuning
         score = 0.0
+        
+        use_rarity = tuning.rarity_boost_enabled and rarity_weights
+        rarity_strength = tuning.rarity_boost_strength
 
         ref_genres = set(g.lower() for g in reference.genres)
         ref_tags = set(t.lower() for t in reference.tags)
@@ -2740,16 +2946,34 @@ class Plugin:
         cand_ctags = set(t.lower() for t in candidate.community_tags)
 
         if ref_genres or cand_genres:
+            shared_genres = ref_genres & cand_genres
             union = len(ref_genres | cand_genres)
-            score += (len(ref_genres & cand_genres) / max(union, 1)) * tuning.genre_weight
+            if use_rarity and shared_genres:
+                genre_rarity = rarity_weights.get("genres", {})
+                weighted_shared = sum(1.0 + genre_rarity.get(g, 0.5) * rarity_strength for g in shared_genres)
+                score += (weighted_shared / max(union, 1)) * tuning.genre_weight
+            else:
+                score += (len(shared_genres) / max(union, 1)) * tuning.genre_weight
 
         if ref_tags or cand_tags:
+            shared_tags = ref_tags & cand_tags
             union = len(ref_tags | cand_tags)
-            score += (len(ref_tags & cand_tags) / max(union, 1)) * tuning.tag_weight
+            if use_rarity and shared_tags:
+                tag_rarity = rarity_weights.get("tags", {})
+                weighted_shared = sum(1.0 + tag_rarity.get(t, 0.5) * rarity_strength for t in shared_tags)
+                score += (weighted_shared / max(union, 1)) * tuning.tag_weight
+            else:
+                score += (len(shared_tags) / max(union, 1)) * tuning.tag_weight
 
         if ref_ctags or cand_ctags:
+            shared_ctags = ref_ctags & cand_ctags
             union = len(ref_ctags | cand_ctags)
-            score += (len(ref_ctags & cand_ctags) / max(union, 1)) * tuning.community_tag_weight
+            if use_rarity and shared_ctags:
+                ctag_rarity = rarity_weights.get("community_tags", {})
+                weighted_shared = sum(1.0 + ctag_rarity.get(ct, 0.5) * rarity_strength for ct in shared_ctags)
+                score += (weighted_shared / max(union, 1)) * tuning.community_tag_weight
+            else:
+                score += (len(shared_ctags) / max(union, 1)) * tuning.community_tag_weight
 
         if reference.steam_review_score > 0 and candidate.steam_review_score > 0:
             diff = abs(reference.steam_review_score - candidate.steam_review_score)
@@ -2832,13 +3056,16 @@ class Plugin:
                 "error": "No games match your filters.",
             }
 
+        tuning = self.similar_to_tuning
+        rarity_weights = self._compute_rarity_weights() if tuning.rarity_boost_enabled else None
+        
         scored = []
         for g in fresh:
-            avg_score = sum(self._score_similar_to(g, ref) for ref in references) / len(references)
+            avg_score = sum(self._score_similar_to(g, ref, rarity_weights) for ref in references) / len(references)
             scored.append((g, avg_score))
         scored.sort(key=lambda x: x[1], reverse=True)
 
-        top_n = max(5, len(scored) * self.similar_to_tuning.top_candidate_percentile // 100)
+        top_n = max(5, len(scored) * tuning.top_candidate_percentile // 100)
         top_pool = scored[:top_n]
         weights = [max(0.01, s) for _, s in top_pool]
         selected = random.choices([g for g, _ in top_pool], weights=weights, k=1)[0]
@@ -2878,3 +3105,153 @@ class Plugin:
     async def clear_versus_state(self) -> dict:
         self._clear_versus_state()
         return {"success": True}
+
+    async def sync_playtime_for_app(self, appid: int) -> dict:
+        """
+        Incremental sync for a single game's runtime fields (playtime, last_played).
+        Called silently after a game closes. Does not emit progress events.
+        """
+        api_key = self.settings.get("steam_api_key", "")
+        steam_id = self.settings.get("steam_id", "")
+
+        if not api_key or not steam_id:
+            return {"success": False, "error": "Missing credentials"}
+
+        try:
+            raw_games = await self._fetch_owned_games(api_key, steam_id)
+            
+            raw_game = next((g for g in raw_games if g.get("appid") == appid), None)
+            if not raw_game:
+                return {"success": False, "error": "Game not found in Steam library"}
+
+            cached_game = next((g for g in self.library_cache if g.appid == appid), None)
+            if not cached_game:
+                return {"success": False, "error": "Game not in local cache"}
+
+            cached_game.playtime_forever = raw_game.get("playtime_forever", 0)
+            cached_game.rtime_last_played = raw_game.get("rtime_last_played")
+            
+            self._save_library_cache()
+            decky.logger.info(f"Synced playtime for appid {appid}: {cached_game.playtime_forever}m")
+            
+            return {
+                "success": True,
+                "appid": appid,
+                "playtime_forever": cached_game.playtime_forever,
+                "rtime_last_played": cached_game.rtime_last_played,
+            }
+        except Exception as e:
+            decky.logger.error(f"Failed to sync playtime for {appid}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def auto_sync_on_load(self) -> dict:
+        """
+        Check for new games on plugin load. If new games are found, sync them
+        and return info for notification. If no new games, complete silently.
+        """
+        api_key = self.settings.get("steam_api_key", "")
+        steam_id = self.settings.get("steam_id", "")
+
+        if not api_key or not steam_id:
+            return {"success": True, "new_games": 0, "silent": True}
+
+        if not self.library_cache:
+            return {"success": True, "new_games": 0, "silent": True}
+
+        try:
+            # 1. Detect new Steam games
+            raw_games = await self._fetch_owned_games(api_key, steam_id)
+            existing_appids = {g.appid for g in self.library_cache if not g.is_non_steam}
+            
+            new_raw_games = [g for g in raw_games if g.get("appid") not in existing_appids]
+            
+            new_steam_games: list[Game] = []
+            for raw in new_raw_games:
+                name = raw.get("name", "Unknown")
+                if name.endswith(" Playtest"):
+                    continue
+                game = Game(
+                    appid=raw.get("appid", 0),
+                    name=name,
+                    playtime_forever=raw.get("playtime_forever", 0),
+                    rtime_last_played=raw.get("rtime_last_played"),
+                    img_icon_url=raw.get("img_icon_url", ""),
+                    has_community_visible_stats=raw.get("has_community_visible_stats", False),
+                )
+                new_steam_games.append(game)
+
+            # 2. Detect new Non-Steam games
+            existing_non_steam_names = {g.original_name.lower().strip() for g in self.library_cache if g.is_non_steam}
+            detected_ns = await self._detect_non_steam_games()
+            seen_names = set()
+            unique_detected = []
+            for ns_game in detected_ns:
+                name_key = ns_game.get("name", "").lower().strip()
+                if name_key and name_key not in seen_names:
+                    seen_names.add(name_key)
+                    unique_detected.append(ns_game)
+
+            new_non_steam_games: list[Game] = []
+            for ns_game in unique_detected:
+                name = ns_game.get("name", "")
+                name_key = name.lower().strip()
+                if name_key not in existing_non_steam_names:
+                    game = Game(
+                        appid=ns_game.get("appid", 0),
+                        name=name,
+                        is_non_steam=True,
+                        original_name=name,
+                        match_status="pending"
+                    )
+                    new_non_steam_games.append(game)
+
+            if not new_steam_games and not new_non_steam_games:
+                decky.logger.info("Auto-sync: No new games found")
+                return {"success": True, "new_games": 0, "silent": True}
+
+            decky.logger.info(f"Auto-sync: Found {len(new_steam_games)} new Steam games and {len(new_non_steam_games)} new Non-Steam games")
+
+            # 3. Match new Non-Steam games against Steam store
+            for i, game in enumerate(new_non_steam_games):
+                match = await self._search_steam_store(game.original_name)
+                if match:
+                    game.matched_appid = match.get("appid")
+                    game.match_status = "matched"
+                else:
+                    game.match_status = "unmatched"
+                await asyncio.sleep(0.05)
+
+            # 4. Fetch metadata for all matched games
+            all_new_games: list[Game] = []
+            all_new_games.extend(new_steam_games)
+            all_new_games.extend([g for g in new_non_steam_games if g.matched_appid])
+
+            if all_new_games:
+                await self._fetch_game_metadata_batch(all_new_games)
+            
+            # 5. Save and emit
+            self.library_cache.extend(new_steam_games)
+            self.library_cache.extend(new_non_steam_games)
+            self.last_refresh = int(time.time())
+            self._save_library_cache()
+
+            steam_count = len([g for g in self.library_cache if not g.is_non_steam])
+            non_steam_count = len([g for g in self.library_cache if g.is_non_steam])
+
+            await decky.emit("suggestme_library_status_changed", {
+                "total_games": steam_count + non_steam_count,
+                "steam_games_count": steam_count,
+                "non_steam_games_count": non_steam_count,
+                "last_refresh": self.last_refresh,
+            })
+
+            total_new = len(new_steam_games) + len(new_non_steam_games)
+            return {
+                "success": True,
+                "new_games": total_new,
+                "silent": False,
+                "total_games": steam_count + non_steam_count,
+            }
+        except Exception as e:
+            decky.logger.error(f"Auto-sync failed: {e}")
+            return {"success": False, "error": str(e), "new_games": 0, "silent": True}

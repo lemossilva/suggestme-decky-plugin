@@ -75,11 +75,28 @@ export function useLibraryStatus() {
       }
     );
 
+    const autoSyncListener = addEventListener<[{ new_games: number; total_games: number; silent: boolean }]>(
+      "suggestme_auto_sync_complete",
+      (data) => {
+        if (cancelled) return;
+        if (data.new_games > 0 && !data.silent) {
+          toaster.toast({
+            title: "SuggestMe • New Games Found",
+            body: `${data.new_games} new game${data.new_games > 1 ? 's' : ''} added to your library`,
+            duration: 4000,
+          });
+          loadStatus();
+          loadGenresAndTags();
+        }
+      }
+    );
+
     return () => {
       cancelled = true;
       removeEventListener("suggestme_library_status_changed", statusListener);
       removeEventListener("suggestme_refresh_progress", progressListener);
       removeEventListener("suggestme_non_steam_progress", nonSteamProgressListener);
+      removeEventListener("suggestme_auto_sync_complete", autoSyncListener);
     };
   }, [loadStatus, loadGenresAndTags]);
 

@@ -10,6 +10,7 @@ import {
     SliderField,
     Spinner,
     TextField,
+    ToggleField,
 } from "@decky/ui";
 import { ReactNode, useState, useEffect, useCallback, useRef } from "react";
 import { FaKey, FaSteam, FaSync, FaCopy, FaDatabase, FaInfoCircle, FaWifi, FaLock, FaCheck, FaExclamationTriangle, FaGamepad, FaChevronRight, FaTrash, FaWrench, FaSlidersH, FaUndo, FaArrowUp, FaArrowDown, FaEye, FaEyeSlash, FaChartBar } from "react-icons/fa";
@@ -485,7 +486,7 @@ const RawgApiKeySection = () => {
                 }}>
                     <FaInfoCircle size={14} style={{ color: '#aa8844' }} />
                     <span style={{ fontSize: 11, color: '#aaa' }}>
-                        Improves Metacritic score coverage. Steam only has scores for ~15% of games.
+                        Improves Metacritic score coverage.
                     </span>
                 </Focusable>
             </PanelSectionRow>
@@ -945,9 +946,14 @@ const LibraryPage = () => {
                     <PanelSectionRow>
                         <div style={{ width: '100%', padding: '8px 0' }}>
                             <div style={{ fontSize: 12, marginBottom: 8, textAlign: 'center' }}>
-                                Fetching game details: {progress.current}/{progress.total}
+                                {progress.phase_label || `Fetching game details: ${progress.current}/${progress.total}`}
+                                {progress.total > 0 && progress.phase === 'metadata' && ` (${progress.current}/${progress.total})`}
                             </div>
-                            <ProgressBar nProgress={(progress.current / progress.total) * 100} />
+                            {progress.total > 0 ? (
+                                <ProgressBar nProgress={(progress.current / progress.total) * 100} />
+                            ) : (
+                                <ProgressBar nProgress={undefined} />
+                            )}
                         </div>
                     </PanelSectionRow>
                 )}
@@ -1067,7 +1073,7 @@ const AboutPage = () => {
             <PanelSection>
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>SuggestMe v1.3.1</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>SuggestMe v1.4.0</div>
                         <div style={{ fontSize: 11, color: '#888' }}>
                             A smart game recommender for your Steam library.
                         </div>
@@ -1485,19 +1491,19 @@ const ModeTuningPage = () => {
         }
     };
 
-    const updateIntelligent = (key: keyof IntelligentTuning, value: number) => {
+    const updateIntelligent = (key: keyof IntelligentTuning, value: number | boolean) => {
         const updated = { ...intelligentTuning, [key]: value };
         setIntelligentTuning(updated);
         saveIntelligent(updated);
     };
 
-    const updateFreshAir = (key: keyof FreshAirTuning, value: number) => {
+    const updateFreshAir = (key: keyof FreshAirTuning, value: number | boolean) => {
         const updated = { ...freshAirTuning, [key]: value };
         setFreshAirTuning(updated);
         saveFreshAir(updated);
     };
 
-    const updateSimilarTo = (key: keyof SimilarToTuning, value: number) => {
+    const updateSimilarTo = (key: keyof SimilarToTuning, value: number | boolean) => {
         const updated = { ...similarToTuning, [key]: value };
         setSimilarToTuning(updated);
         saveSimilarTo(updated);
@@ -1631,6 +1637,30 @@ const ModeTuningPage = () => {
                 </PanelSectionRow>
 
                 <PanelSectionRow>
+                    <ToggleField
+                        label="Rarity Boost"
+                        description="Rare tags (e.g. 'Programming') score higher than common ones (e.g. 'Action')"
+                        checked={intelligentTuning.rarity_boost_enabled}
+                        onChange={(v) => updateIntelligent("rarity_boost_enabled", v)}
+                    />
+                </PanelSectionRow>
+
+                {intelligentTuning.rarity_boost_enabled && (
+                    <PanelSectionRow>
+                        <SliderField
+                            label="Rarity Boost Strength"
+                            description="How much rarity affects tag importance"
+                            value={intelligentTuning.rarity_boost_strength}
+                            min={0}
+                            max={1}
+                            step={0.1}
+                            onChange={(v) => updateIntelligent("rarity_boost_strength", v)}
+                            showValue
+                        />
+                    </PanelSectionRow>
+                )}
+
+                <PanelSectionRow>
                     <ButtonItem layout="below" onClick={handleResetIntelligent}>
                         <FaUndo style={{ marginRight: 8 }} />
                         Reset Intelligent to Defaults
@@ -1737,6 +1767,30 @@ const ModeTuningPage = () => {
                 </PanelSectionRow>
 
                 <PanelSectionRow>
+                    <ToggleField
+                        label="Rarity Boost"
+                        description="Rare tags reduce penalty less than common tags"
+                        checked={freshAirTuning.rarity_boost_enabled}
+                        onChange={(v) => updateFreshAir("rarity_boost_enabled", v)}
+                    />
+                </PanelSectionRow>
+
+                {freshAirTuning.rarity_boost_enabled && (
+                    <PanelSectionRow>
+                        <SliderField
+                            label="Rarity Boost Strength"
+                            description="How much rarity reduces penalty for familiar tags"
+                            value={freshAirTuning.rarity_boost_strength}
+                            min={0}
+                            max={1}
+                            step={0.1}
+                            onChange={(v) => updateFreshAir("rarity_boost_strength", v)}
+                            showValue
+                        />
+                    </PanelSectionRow>
+                )}
+
+                <PanelSectionRow>
                     <ButtonItem layout="below" onClick={handleResetFreshAir}>
                         <FaUndo style={{ marginRight: 8 }} />
                         Reset Fresh Air to Defaults
@@ -1815,6 +1869,30 @@ const ModeTuningPage = () => {
                         showValue
                     />
                 </PanelSectionRow>
+
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Rarity Boost"
+                        description="Matching rare tags scores higher than matching common tags"
+                        checked={similarToTuning.rarity_boost_enabled}
+                        onChange={(v) => updateSimilarTo("rarity_boost_enabled", v)}
+                    />
+                </PanelSectionRow>
+
+                {similarToTuning.rarity_boost_enabled && (
+                    <PanelSectionRow>
+                        <SliderField
+                            label="Rarity Boost Strength"
+                            description="How much rarity increases match importance"
+                            value={similarToTuning.rarity_boost_strength}
+                            min={0}
+                            max={1}
+                            step={0.1}
+                            onChange={(v) => updateSimilarTo("rarity_boost_strength", v)}
+                            showValue
+                        />
+                    </PanelSectionRow>
+                )}
 
                 <PanelSectionRow>
                     <ButtonItem layout="below" onClick={handleResetSimilarTo}>

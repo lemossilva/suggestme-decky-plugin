@@ -1,7 +1,7 @@
 # SuggestMe
 
 ![SuggestMe](https://img.shields.io/badge/Decky-Plugin-blue)
-![Version](https://img.shields.io/badge/release-v1.3.1-green)
+![Version](https://img.shields.io/badge/release-v1.4.0-green)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 
 ![SuggestMe Promo](assets/promo.png)
@@ -25,6 +25,7 @@ Fine-tune how Intelligent, Fresh Air, and Similar To modes score games:
 - **Intelligent Mode** - Adjust recent games count, most-played count, recency decay, genre/tag/community tag weights, unplayed bonus, and top candidate percentile
 - **Fresh Air Mode** - Adjust genre/tag/community tag penalties, unplayed bonus, novel genre bonus, and top candidate percentile
 - **Similar To Mode** - Adjust genre/tag/community tag overlap weights, review proximity bonus, and top candidate percentile
+- **Rarity Boost** - Toggle and tune how much rare tags (e.g., "Programming") are weighted higher than common tags (e.g., "Action") in all tunable modes
 - Community tags are integrated into the preference profile and scoring for all tunable modes
 
 ### Powerful Filtering Engine
