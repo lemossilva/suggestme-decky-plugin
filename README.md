@@ -321,7 +321,7 @@ SuggestMe requires a **Steam Web API Key** and your **Steam ID 64** to function.
 Your API keys and Steam ID are saved locally in a JSON file on your Steam Deck:
 
 ```
-~/.config/decky/settings/SuggestMe/settings.json
+/home/deck/homebrew/settings/suggestme-decky-plugin/settings.json
 ```
 
 This file is protected with `chmod 600` (owner read/write only). You can verify this in [`main.py` → `_save_settings()`](main.py):
