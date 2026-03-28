@@ -1073,7 +1073,7 @@ const AboutPage = () => {
             <PanelSection>
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>SuggestMe v1.4.0</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>SuggestMe v1.4.1</div>
                         <div style={{ fontSize: 11, color: '#888' }}>
                             A smart game recommender for your Steam library.
                         </div>

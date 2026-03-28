@@ -224,9 +224,12 @@ export function SimilarToPage() {
                 </Focusable>
             </Focusable>
 
-            <div style={{ flex: 1, display: "flex", gap: 20, overflow: "hidden", width: "100%" }}>
+            <Focusable
+                flow-children="row"
+                style={{ flex: 1, display: "flex", gap: 20, overflow: "hidden", width: "100%" }}
+            >
                 {/* Left panel: game picker */}
-                <div style={{
+                <Focusable style={{
                     flex: 1,
                     display: "flex",
                     flexDirection: "column",
@@ -410,11 +413,11 @@ export function SimilarToPage() {
                         </div>
                     )}
 
-                </div>
+                </Focusable>
 
                 {/* Right panel: suggestion result */}
                 {suggestedGame && (
-                    <div style={{
+                    <Focusable style={{
                         flex: 1,
                         display: "flex",
                         flexDirection: "column",
@@ -600,9 +603,9 @@ export function SimilarToPage() {
                                 {suggestion.error}
                             </div>
                         )}
-                    </div>
+                    </Focusable>
                 )}
-            </div>
+            </Focusable>
         </div>
     );
 }
