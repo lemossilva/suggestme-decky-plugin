@@ -3,6 +3,9 @@ export interface Game {
   name: string;
   playtime_forever: number;
   rtime_last_played?: number;
+  rtime_purchased?: number;
+  release_date?: number;
+  size_on_disk?: number;
   genres: string[];
   tags: string[];
   community_tags: string[];
@@ -52,6 +55,19 @@ export interface SuggestFilters {
   min_steam_review_score?: number;
   min_metacritic_score?: number;
   include_games_without_reviews: boolean;
+  release_date_after?: number;
+  release_date_before?: number;
+  include_unknown_release_date?: boolean;
+  release_date_map?: Record<number, number>;
+  purchase_date_after?: number;
+  purchase_date_before?: number;
+  include_unknown_purchase_date?: boolean;
+  purchase_date_map?: Record<number, number>;
+  title_regex?: string;
+  title_regex_case_sensitive?: boolean;
+  min_size_mb?: number;
+  max_size_mb?: number;
+  size_on_disk_map?: Record<number, number>;
 }
 
 export interface SuggestMeConfig {
@@ -68,6 +84,10 @@ export interface SuggestMeConfig {
   spin_wheel_silent?: boolean;
   exclude_play_next_from_suggestions?: boolean;
   similar_to_filter_pool?: boolean;
+  auto_sync_play_next_collection?: boolean;
+  auto_sync_excluded_collection?: boolean;
+  auto_sync_new_games?: boolean;
+  spin_wheel_banner_colors?: boolean;
 }
 
 export interface Credentials {
@@ -105,6 +125,7 @@ export interface HistoryEntry {
   filters?: SuggestFilters;
   preset_name?: string;
   extra_data?: Record<string, any>;
+  release_date?: number;
 }
 
 export interface RefreshProgress {
@@ -135,6 +156,16 @@ export const DEFAULT_FILTERS: SuggestFilters = {
   min_steam_review_score: undefined,
   min_metacritic_score: undefined,
   include_games_without_reviews: true,
+  release_date_after: undefined,
+  release_date_before: undefined,
+  include_unknown_release_date: true,
+  purchase_date_after: undefined,
+  purchase_date_before: undefined,
+  include_unknown_purchase_date: true,
+  title_regex: undefined,
+  title_regex_case_sensitive: false,
+  min_size_mb: undefined,
+  max_size_mb: undefined,
 };
 
 export interface FilterPreset {
@@ -304,6 +335,9 @@ export interface VersusResult {
 }
 
 export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {
+  const na = { ...DEFAULT_FILTERS, ...a };
+  const nb = { ...DEFAULT_FILTERS, ...b };
+
   const arraysEqual = (x: string[] | number[] | undefined, y: string[] | number[] | undefined) => {
     const ax = x || [];
     const ay = y || [];
@@ -312,25 +346,35 @@ export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {
   };
   
   return (
-    arraysEqual(a.include_genres, b.include_genres) &&
-    arraysEqual(a.exclude_genres, b.exclude_genres) &&
-    arraysEqual(a.include_tags, b.include_tags) &&
-    arraysEqual(a.exclude_tags, b.exclude_tags) &&
-    arraysEqual(a.include_community_tags, b.include_community_tags) &&
-    arraysEqual(a.exclude_community_tags, b.exclude_community_tags) &&
-    arraysEqual(a.deck_status, b.deck_status) &&
-    arraysEqual(a.protondb_tier, b.protondb_tier) &&
-    arraysEqual(a.include_collections, b.include_collections) &&
-    arraysEqual(a.exclude_collections, b.exclude_collections) &&
-    a.min_playtime === b.min_playtime &&
-    a.max_playtime === b.max_playtime &&
-    a.installed_only === b.installed_only &&
-    a.not_installed_only === b.not_installed_only &&
-    a.include_unplayed === b.include_unplayed &&
-    a.non_steam_only === b.non_steam_only &&
-    a.exclude_non_steam === b.exclude_non_steam &&
-    a.min_steam_review_score === b.min_steam_review_score &&
-    a.min_metacritic_score === b.min_metacritic_score &&
-    a.include_games_without_reviews === b.include_games_without_reviews
+    arraysEqual(na.include_genres, nb.include_genres) &&
+    arraysEqual(na.exclude_genres, nb.exclude_genres) &&
+    arraysEqual(na.include_tags, nb.include_tags) &&
+    arraysEqual(na.exclude_tags, nb.exclude_tags) &&
+    arraysEqual(na.include_community_tags, nb.include_community_tags) &&
+    arraysEqual(na.exclude_community_tags, nb.exclude_community_tags) &&
+    arraysEqual(na.deck_status, nb.deck_status) &&
+    arraysEqual(na.protondb_tier, nb.protondb_tier) &&
+    arraysEqual(na.include_collections, nb.include_collections) &&
+    arraysEqual(na.exclude_collections, nb.exclude_collections) &&
+    na.min_playtime === nb.min_playtime &&
+    na.max_playtime === nb.max_playtime &&
+    na.installed_only === nb.installed_only &&
+    na.not_installed_only === nb.not_installed_only &&
+    na.include_unplayed === nb.include_unplayed &&
+    na.non_steam_only === nb.non_steam_only &&
+    na.exclude_non_steam === nb.exclude_non_steam &&
+    na.min_steam_review_score === nb.min_steam_review_score &&
+    na.min_metacritic_score === nb.min_metacritic_score &&
+    na.include_games_without_reviews === nb.include_games_without_reviews &&
+    na.release_date_after === nb.release_date_after &&
+    na.release_date_before === nb.release_date_before &&
+    na.include_unknown_release_date === nb.include_unknown_release_date &&
+    na.purchase_date_after === nb.purchase_date_after &&
+    na.purchase_date_before === nb.purchase_date_before &&
+    na.include_unknown_purchase_date === nb.include_unknown_purchase_date &&
+    na.title_regex === nb.title_regex &&
+    na.title_regex_case_sensitive === nb.title_regex_case_sensitive &&
+    na.min_size_mb === nb.min_size_mb &&
+    na.max_size_mb === nb.max_size_mb
   );
 }

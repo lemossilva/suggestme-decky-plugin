@@ -12,9 +12,10 @@ import {
 } from "@decky/ui";
 import { routerHook } from "@decky/api";
 import { useState } from "react";
-import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash, FaStar } from "react-icons/fa";
+import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash, FaStar, FaHdd, FaCopy, FaExclamationTriangle, FaSlidersH } from "react-icons/fa";
 import { SuggestFilters, DEFAULT_FILTERS } from "../types";
 import { useFilterPresets } from "../hooks/useFilterPresets";
+import { DatePicker } from "./DatePicker";
 
 const normalizeFilters = (filters: SuggestFilters): SuggestFilters => ({
     ...DEFAULT_FILTERS,
@@ -1091,6 +1092,284 @@ const PresetsPage = ({
     );
 };
 
+const CopyableLink = ({ url, label }: { url: string; label: string }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        try {
+            const el = document.createElement('textarea');
+            el.value = url;
+            el.style.position = 'fixed';
+            el.style.opacity = '0';
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (e) {
+            console.error('Failed to copy:', e);
+        }
+    };
+
+    return (
+        <Focusable
+            onActivate={handleCopy}
+            onClick={handleCopy}
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 12px',
+                backgroundColor: copied ? '#88ff8822' : '#ffffff11',
+                borderRadius: 6,
+                cursor: 'pointer',
+                border: '2px solid transparent',
+                marginBottom: 8
+            }}
+            onFocus={(e: any) => e.target.style.borderColor = 'white'}
+            onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+        >
+            <FaCopy size={12} style={{ color: copied ? '#88ff88' : '#888' }} />
+            <span style={{ flex: 1, fontSize: 11 }}>{label}</span>
+            <span style={{ 
+                fontSize: 10, 
+                padding: '2px 6px',
+                borderRadius: 4,
+                backgroundColor: copied ? '#88ff8833' : '#ffffff11',
+                color: copied ? '#88ff88' : '#888'
+            }}>
+                {copied ? '✓ Copied!' : 'Copy'}
+            </span>
+        </Focusable>
+    );
+};
+
+const AdvancedFiltersPage = ({ filters, setFilters }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void }) => {
+    const [regexError, setRegexError] = useState<string | null>(null);
+
+    const validateRegex = (pattern: string): boolean => {
+        if (!pattern) {
+            setRegexError(null);
+            return true;
+        }
+        try {
+            new RegExp(pattern);
+            setRegexError(null);
+            return true;
+        } catch (e) {
+            setRegexError((e as Error).message);
+            return false;
+        }
+    };
+
+    const handleRegexChange = (value: string) => {
+        validateRegex(value);
+        setFilters({ ...filters, title_regex: value || undefined });
+    };
+
+    const formatSize = (mb: number | undefined): string => {
+        if (mb === undefined) return '';
+        if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+        return `${mb} MB`;
+    };
+
+    return (
+        <div style={{ padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
+            <PanelSection title="Release Date">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                        Filter games by their official Steam release date.
+                    </div>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <DatePicker
+                        label="Released after"
+                        value={filters.release_date_after}
+                        onChange={(ts) => setFilters({ ...filters, release_date_after: ts })}
+                        placeholder="Any date"
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <DatePicker
+                        label="Released before"
+                        value={filters.release_date_before}
+                        onChange={(ts) => setFilters({ ...filters, release_date_before: ts })}
+                        placeholder="Any date"
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Include games without release date"
+                        checked={filters.include_unknown_release_date !== false}
+                        onChange={(val) => setFilters({ ...filters, include_unknown_release_date: val })}
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+
+            <PanelSection title="Purchase Date">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                        Filter games by when you added them to your library.
+                    </div>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <DatePicker
+                        label="Purchased after"
+                        value={filters.purchase_date_after}
+                        onChange={(ts) => setFilters({ ...filters, purchase_date_after: ts })}
+                        placeholder="Any date"
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <DatePicker
+                        label="Purchased before"
+                        value={filters.purchase_date_before}
+                        onChange={(ts) => setFilters({ ...filters, purchase_date_before: ts })}
+                        placeholder="Any date"
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Include games without purchase date"
+                        checked={filters.include_unknown_purchase_date !== false}
+                        onChange={(val) => setFilters({ ...filters, include_unknown_purchase_date: val })}
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+
+            <PanelSection title="Title Regex">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                        Filter games by matching their title against a regular expression pattern.
+                    </div>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <CopyableLink 
+                        url="https://regex101.com" 
+                        label="regex101.com — Test & learn regex patterns" 
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <div style={{ width: '100%' }}>
+                        <TextField
+                            label="Regex Pattern"
+                            value={filters.title_regex || ''}
+                            onChange={(e) => handleRegexChange(e.target.value)}
+                        />
+                        {regexError && (
+                            <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 6, 
+                                marginTop: 4,
+                                padding: '6px 8px',
+                                backgroundColor: '#ff666622',
+                                borderRadius: 4,
+                                fontSize: 11,
+                                color: '#ff6666'
+                            }}>
+                                <FaExclamationTriangle size={10} />
+                                Invalid regex: {regexError}
+                            </div>
+                        )}
+                        {filters.title_regex && !regexError && (
+                            <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 6, 
+                                marginTop: 4,
+                                padding: '6px 8px',
+                                backgroundColor: '#88ff8822',
+                                borderRadius: 4,
+                                fontSize: 11,
+                                color: '#88ff88'
+                            }}>
+                                <FaCheck size={10} />
+                                Valid regex pattern
+                            </div>
+                        )}
+                    </div>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Case sensitive"
+                        checked={filters.title_regex_case_sensitive === true}
+                        onChange={(val) => setFilters({ ...filters, title_regex_case_sensitive: val })}
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <div style={{ fontSize: 10, color: '#666' }}>
+                        Examples: <code style={{ backgroundColor: '#ffffff11', padding: '2px 4px', borderRadius: 2 }}>^The</code> (starts with "The"), 
+                        <code style={{ backgroundColor: '#ffffff11', padding: '2px 4px', borderRadius: 2, marginLeft: 4 }}>2$</code> (ends with "2"), 
+                        <code style={{ backgroundColor: '#ffffff11', padding: '2px 4px', borderRadius: 2, marginLeft: 4 }}>mario|zelda</code> (contains either)
+                    </div>
+                </PanelSectionRow>
+            </PanelSection>
+
+            <PanelSection title="Size on Disk">
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                        Filter installed games by their disk space usage.
+                    </div>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <Focusable style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 8, 
+                        padding: '8px 12px',
+                        backgroundColor: '#4488aa22',
+                        borderRadius: 6,
+                        marginBottom: 8
+                    }}>
+                        <FaHdd size={12} style={{ color: '#4488aa' }} />
+                        <span style={{ fontSize: 11, color: '#aaa' }}>
+                            Only applies to installed games. Uninstalled games will be excluded.
+                        </span>
+                    </Focusable>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <SliderField
+                        label={`Minimum size: ${filters.min_size_mb ? formatSize(filters.min_size_mb) : 'Any'}`}
+                        value={filters.min_size_mb || 0}
+                        min={0}
+                        max={102400}
+                        step={512}
+                        onChange={(val) => setFilters({ ...filters, min_size_mb: val > 0 ? val : undefined })}
+                        notchCount={5}
+                        notchLabels={[
+                            { notchIndex: 0, label: '0' },
+                            { notchIndex: 1, label: '25GB' },
+                            { notchIndex: 2, label: '50GB' },
+                            { notchIndex: 3, label: '75GB' },
+                            { notchIndex: 4, label: '100GB' },
+                        ]}
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <SliderField
+                        label={`Maximum size: ${filters.max_size_mb ? formatSize(filters.max_size_mb) : 'Any'}`}
+                        value={filters.max_size_mb || 102400}
+                        min={0}
+                        max={102400}
+                        step={512}
+                        onChange={(val) => setFilters({ ...filters, max_size_mb: val < 102400 ? val : undefined })}
+                        notchCount={5}
+                        notchLabels={[
+                            { notchIndex: 0, label: '0' },
+                            { notchIndex: 1, label: '25GB' },
+                            { notchIndex: 2, label: '50GB' },
+                            { notchIndex: 3, label: '75GB' },
+                            { notchIndex: 4, label: '100GB' },
+                        ]}
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+        </div>
+    );
+};
+
 export const FiltersPage = () => {
     const props = currentFiltersProps;
     const { setActive } = useFilterPresets();
@@ -1156,6 +1435,17 @@ export const FiltersPage = () => {
         return count;
     };
     const getCollectionsCount = () => (localFilters.include_collections?.length || 0) + (localFilters.exclude_collections?.length || 0);
+    const getAdvancedCount = () => {
+        let count = 0;
+        if (localFilters.release_date_after !== undefined) count++;
+        if (localFilters.release_date_before !== undefined) count++;
+        if (localFilters.purchase_date_after !== undefined) count++;
+        if (localFilters.purchase_date_before !== undefined) count++;
+        if (localFilters.title_regex) count++;
+        if (localFilters.min_size_mb !== undefined) count++;
+        if (localFilters.max_size_mb !== undefined) count++;
+        return count;
+    };
 
     const badge = (count: number) => count > 0 ? ` (${count})` : '';
 
@@ -1204,6 +1494,11 @@ export const FiltersPage = () => {
             title: `Collections${badge(getCollectionsCount())}`,
             icon: <FaFolder size={14} />,
             content: <CollectionsPage filters={localFilters} setFilters={handleFilterChange} collections={props.availableCollections} />
+        },
+        {
+            title: `Advanced${badge(getAdvancedCount())}`,
+            icon: <FaSlidersH size={14} />,
+            content: <AdvancedFiltersPage filters={localFilters} setFilters={handleFilterChange} />
         }
     ];
 
@@ -1317,6 +1612,10 @@ export function getFilterSummary(filters: SuggestFilters): string {
     if (filters.min_steam_review_score) parts.push(`Steam ≥${STEAM_REVIEW_SCORE_LABELS[filters.min_steam_review_score] || filters.min_steam_review_score}`);
     if (filters.min_metacritic_score) parts.push(`Meta ≥${filters.min_metacritic_score}`);
     if (!filters.include_games_without_reviews) parts.push('Reviews required');
+    if (filters.release_date_after !== undefined || filters.release_date_before !== undefined) parts.push('Release date');
+    if (filters.purchase_date_after !== undefined || filters.purchase_date_before !== undefined) parts.push('Purchase date');
+    if (filters.title_regex) parts.push('Title regex');
+    if (filters.min_size_mb !== undefined || filters.max_size_mb !== undefined) parts.push('Size');
     
     return parts.length > 0 ? parts.join(' • ') : 'No filters';
 }
@@ -1343,6 +1642,13 @@ export function hasActiveFilters(filters: SuggestFilters): boolean {
         (filters.exclude_collections?.length || 0) > 0 ||
         filters.min_steam_review_score !== undefined ||
         filters.min_metacritic_score !== undefined ||
-        !filters.include_games_without_reviews
+        !filters.include_games_without_reviews ||
+        filters.release_date_after !== undefined ||
+        filters.release_date_before !== undefined ||
+        filters.purchase_date_after !== undefined ||
+        filters.purchase_date_before !== undefined ||
+        !!filters.title_regex ||
+        filters.min_size_mb !== undefined ||
+        filters.max_size_mb !== undefined
     );
 }

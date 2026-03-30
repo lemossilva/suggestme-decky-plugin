@@ -6,6 +6,7 @@ import { Game, SuggestFilters, SuggestionResult } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { navigateToHistory } from "./HistoryModal";
+import { GameMetadataRow } from "../utils/gameMetadata";
 import { logger } from "../utils/logger";
 
 export const SIMILAR_TO_ROUTE = "/suggestme/similar-to";
@@ -483,6 +484,8 @@ export function SimilarToPage() {
                                         </span>
                                     )}
                                 </div>
+
+                                <GameMetadataRow game={suggestedGame} />
 
                                 {suggestion?.reason && (
                                     <div style={{

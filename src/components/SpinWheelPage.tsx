@@ -8,6 +8,8 @@ import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { navigateToHistory } from "./HistoryModal";
+import { getBannerColorsForGames } from "../utils/bannerColors";
+import { GameMetadataRow } from "../utils/gameMetadata";
 import { logger } from "../utils/logger";
 
 export const SPIN_WHEEL_ROUTE = "/suggestme/spin-wheel";
@@ -84,11 +86,13 @@ export function SpinWheelPage() {
     const [confirmingExclude, setConfirmingExclude] = useState(false);
     const [justAddedToPlayNext, setJustAddedToPlayNext] = useState(false);
     const [initialCandidatesCount, setInitialCandidatesCount] = useState<number>(0);
+    const [bannerColors, setBannerColors] = useState<Map<number, string[]>>(new Map());
 
     const { addGame: addToPlayNext, removeGame: removeFromPlayNext, isInList: isInPlayNext } = usePlayNext();
     const { excludeGame } = useExcludedGames();
     const { config, setSpinWheelSilent } = useSuggestMeConfig();
     const isSilent = config.spin_wheel_silent ?? false;
+    const useBannerColors = config.spin_wheel_banner_colors ?? false;
 
     const containerRef = useRef<HTMLDivElement>(null);
     const scale = useContainerScale(containerRef);
@@ -144,6 +148,24 @@ export function SpinWheelPage() {
             cleanupAudio();
         };
     }, [loadCandidates]);
+
+    // Handle banner colors setting changes
+    useEffect(() => {
+        if (!payload || payload.candidates.length === 0) return;
+        
+        if (useBannerColors) {
+            // Fetch banner colors when enabled
+            const appids = payload.candidates.map(g => g.is_non_steam && g.matched_appid ? g.matched_appid : g.appid);
+            getBannerColorsForGames(appids).then(colors => {
+                if (mountedRef.current) {
+                    setBannerColors(colors);
+                }
+            });
+        } else {
+            // Clear banner colors when disabled (revert to defaults)
+            setBannerColors(new Map());
+        }
+    }, [useBannerColors, payload]);
 
     const spinWheel = useCallback((velocityMultiplier: number = 1, clockwise: boolean = true) => {
         if (!payload || isSpinning || payload.candidates.length === 0) return;
@@ -229,7 +251,7 @@ export function SpinWheelPage() {
         };
     };
 
-    const handleTouchEnd = (e: React.TouchEvent) => {
+    const handleTouchEnd = async (e: React.TouchEvent) => {
         if (isSpinning || !payload || !touchStartRef.current) return;
 
         const touch = e.changedTouches[0];
@@ -243,7 +265,12 @@ export function SpinWheelPage() {
 
         if (velocity > 0.3) {
             const velocityMultiplier = Math.max(0.6, Math.min(velocity / 1.5, 2.0));
-            spinWheel(velocityMultiplier, clockwise);
+            // If showing a winner, fetch new candidates first
+            if (showWinner) {
+                await handleSpinAgain();
+            }
+            // Wait a bit for state to update, then spin
+            setTimeout(() => spinWheel(velocityMultiplier, clockwise), 100);
         }
 
         touchStartRef.current = null;
@@ -344,7 +371,10 @@ export function SpinWheelPage() {
 
         const gradientStops: string[] = [];
         for (let i = 0; i < totalSlices; i++) {
-            const color = SLICE_COLORS[i % SLICE_COLORS.length];
+            const game = payload.candidates[i];
+            const effectiveAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
+            const bannerColor = bannerColors.get(effectiveAppId)?.[0];
+            const color = bannerColor || SLICE_COLORS[i % SLICE_COLORS.length];
             gradientStops.push(`${color} ${i * sliceAngle}deg ${(i + 1) * sliceAngle}deg`);
         }
 
@@ -550,7 +580,8 @@ export function SpinWheelPage() {
                     style={{
                         flex: 1, display: "flex", gap: s(20),
                         alignItems: "center",
-                        marginTop: -s(4) 
+                        marginTop: -s(4),
+                        width: '100%',
                     }}
                 >
                     {/* Left: smaller wheel + spin again - centered in available left space */}
@@ -626,6 +657,7 @@ export function SpinWheelPage() {
                                             <span><FaGamepad style={{ marginRight: s(4) }} />{formatPlaytime(game.playtime_forever)}</span>
                                             <span>Last: {formatLastPlayed(game.rtime_last_played)}</span>
                                         </div>
+                                        <GameMetadataRow game={game} scale={s} />
                                     </div>
                                     {(game.steam_review_description || game.metacritic_score > 0) && (
                                         <div style={{ display: "flex", flexDirection: "column", gap: s(4), alignItems: "flex-end", fontSize: s(11), color: "#aaa" }}>

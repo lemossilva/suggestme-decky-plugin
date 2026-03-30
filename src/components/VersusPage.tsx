@@ -6,6 +6,7 @@ import { Game, SuggestFilters, VersusRoundPayload } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { navigateToHistory } from "./HistoryModal";
+import { GameMetadataRow } from "../utils/gameMetadata";
 import { logger } from "../utils/logger";
 
 export const VERSUS_ROUTE = "/suggestme/versus";
@@ -752,6 +753,8 @@ export function VersusPage() {
                                     : `Defeated ${rounds} challenger${rounds !== 1 ? "s" : ""}`
                                 }
                             </div>
+
+                            <GameMetadataRow game={champion} />
                         </div>
                     </div>
 

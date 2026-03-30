@@ -11,8 +11,10 @@ import { FaArrowLeft, FaSteam, FaGamepad, FaCheck, FaTimes, FaClock, FaTag, FaSt
 import { Game } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
+import { GameMetadataRow } from "../utils/gameMetadata";
+import { getSizeOnDisk, getPurchaseDate } from "../hooks/useSuggestion";
 
-export type FilterCategory = 
+export type FilterCategory =
     | "enrichment"
     | "genres"
     | "tags"
@@ -33,6 +35,11 @@ export interface GamesListModalProps {
     filterCategory?: FilterCategory;
     filterValue?: string;
     onBack: () => void;
+    showNonSteamToggles?: boolean;
+    includeNonSteam?: boolean;
+    includeUnmatched?: boolean;
+    onIncludeNonSteamChange?: (val: boolean) => void;
+    onIncludeUnmatchedChange?: (val: boolean) => void;
 }
 
 const getGameIconUrl = (game: Game): string | null => {
@@ -112,6 +119,11 @@ export function GamesListModal({
     games,
     highlightField,
     onBack,
+    showNonSteamToggles,
+    includeNonSteam,
+    includeUnmatched,
+    onIncludeNonSteamChange,
+    onIncludeUnmatchedChange,
 }: GamesListModalProps) {
     const [sortBy, setSortBy] = useState<"name" | "playtime" | "recent">("name");
     const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
@@ -131,7 +143,9 @@ export function GamesListModal({
         return () => clearTimeout(timer);
     }, []);
 
-    const baseFilteredGames = games.filter(g => !g.is_non_steam || g.match_status === "matched");
+    const baseFilteredGames = showNonSteamToggles
+        ? games
+        : games.filter(g => !g.is_non_steam || g.match_status === "matched");
 
     const quickFilteredGames = baseFilteredGames.filter(g => {
         if (quickFilter === "unplayed") return g.playtime_forever === 0;
@@ -258,9 +272,54 @@ export function GamesListModal({
                         onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                     >
                         <FaArrowLeft size={12} />
-                        <span style={{ fontSize: 12 }}>Back to Statistics</span>
+                        <span style={{ fontSize: 12 }}>Back</span>
                     </Focusable>
                 </PanelSectionRow>
+
+                {showNonSteamToggles && (
+                    <>
+                        <PanelSectionRow>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                                <span style={{ fontSize: 11 }}>Include Non-Steam</span>
+                                <Focusable
+                                    onActivate={() => onIncludeNonSteamChange?.(!includeNonSteam)}
+                                    style={{
+                                        padding: "4px 10px",
+                                        backgroundColor: includeNonSteam ? "#4488aa" : "#ffffff11",
+                                        borderRadius: 4,
+                                        fontSize: 10,
+                                        cursor: "pointer",
+                                        border: "2px solid transparent",
+                                    }}
+                                    onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                    onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                >
+                                    {includeNonSteam ? "ON" : "OFF"}
+                                </Focusable>
+                            </div>
+                        </PanelSectionRow>
+                        <PanelSectionRow>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", opacity: includeNonSteam ? 1 : 0.4 }}>
+                                <span style={{ fontSize: 11 }}>Include Unmatched</span>
+                                <Focusable
+                                    onActivate={includeNonSteam ? () => onIncludeUnmatchedChange?.(!includeUnmatched) : undefined}
+                                    style={{
+                                        padding: "4px 10px",
+                                        backgroundColor: includeUnmatched && includeNonSteam ? "#4488aa" : "#ffffff11",
+                                        borderRadius: 4,
+                                        fontSize: 10,
+                                        cursor: includeNonSteam ? "pointer" : "default",
+                                        border: "2px solid transparent",
+                                    }}
+                                    onFocus={(e: any) => (e.target.style.borderColor = includeNonSteam ? "white" : "transparent")}
+                                    onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                >
+                                    {includeUnmatched ? "ON" : "OFF"}
+                                </Focusable>
+                            </div>
+                        </PanelSectionRow>
+                    </>
+                )}
 
                 <PanelSectionRow>
                     <div style={{ marginBottom: 16 }}>
@@ -419,10 +478,9 @@ export function GamesListModal({
                         const gameExcluded = isExcluded(game.appid);
 
                         return (
-                        <PanelSectionRow key={`${game.appid}-${game.is_non_steam}`}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+                            <PanelSectionRow key={`${game.appid}-${game.is_non_steam}`}>
                                 <Focusable
-                                    onActivate={() => handleNavigateToGame(game)}
+                                    flow-children="column"
                                     style={{
                                         display: "flex",
                                         flexDirection: "column",
@@ -431,15 +489,26 @@ export function GamesListModal({
                                         backgroundColor: gameExcluded ? "#ff666611" : "#ffffff08",
                                         borderRadius: 8,
                                         border: "2px solid transparent",
-                                        cursor: "pointer",
-                                        width: "100%",
                                         opacity: gameExcluded ? 0.6 : 1,
                                     }}
                                     onFocus={(e: any) => (e.target.style.borderColor = "white")}
                                     onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                                 >
-                                    {/* Game header */}
-                                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                    {/* Library Page button - first focusable child */}
+                                    <Focusable
+                                        onActivate={() => handleNavigateToGame(game)}
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 10,
+                                            padding: "4px",
+                                            borderRadius: 6,
+                                            border: "2px solid transparent",
+                                            cursor: "pointer",
+                                        }}
+                                        onFocus={(e: any) => (e.target.style.borderColor = "#4488aa")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                    >
                                         {showFallbackIcon ? (
                                             <div
                                                 style={{
@@ -511,204 +580,186 @@ export function GamesListModal({
                                                 )}
                                             </div>
                                         </div>
-                                    </div>
-
-                                {/* Playtime row */}
-                                <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#aaa", ...getHighlightStyle("playtime_forever") }}>
-                                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                        <FaClock size={9} />
-                                        {formatPlaytime(game.playtime_forever)}
-                                    </span>
-                                    <span style={{ color: "#666" }}>•</span>
-                                    <span style={{ ...getHighlightStyle("rtime_last_played") }}>
-                                        Last: {formatLastPlayed(game.rtime_last_played)}
-                                    </span>
-                                </div>
-
-                                {/* Genres */}
-                                {game.genres && game.genres.length > 0 && (
-                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, ...getHighlightStyle("genres") }}>
-                                        {game.genres.slice(0, 4).map((genre, i) => (
-                                            <span
-                                                key={i}
-                                                style={{
-                                                    fontSize: 9,
-                                                    padding: "2px 6px",
-                                                    backgroundColor: "#4488aa33",
-                                                    color: "#88ccff",
-                                                    borderRadius: 4,
-                                                }}
-                                            >
-                                                {genre}
-                                            </span>
-                                        ))}
-                                        {game.genres.length > 4 && (
-                                            <span style={{ fontSize: 9, color: "#666" }}>+{game.genres.length - 4}</span>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Tags (Steam features) */}
-                                {game.tags && game.tags.length > 0 && (
-                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, ...getHighlightStyle("tags") }}>
-                                        <FaTag size={8} style={{ color: "#666", marginTop: 2 }} />
-                                        {game.tags.slice(0, 3).map((tag, i) => (
-                                            <span
-                                                key={i}
-                                                style={{
-                                                    fontSize: 9,
-                                                    padding: "2px 6px",
-                                                    backgroundColor: "#ffffff11",
-                                                    color: "#999",
-                                                    borderRadius: 4,
-                                                }}
-                                            >
-                                                {tag}
-                                            </span>
-                                        ))}
-                                        {game.tags.length > 3 && (
-                                            <span style={{ fontSize: 9, color: "#666" }}>+{game.tags.length - 3}</span>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Community tags */}
-                                {game.community_tags && game.community_tags.length > 0 && (
-                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, ...getHighlightStyle("community_tags") }}>
-                                        {game.community_tags.slice(0, 4).map((tag, i) => (
-                                            <span
-                                                key={i}
-                                                style={{
-                                                    fontSize: 9,
-                                                    padding: "2px 6px",
-                                                    backgroundColor: "#aa886622",
-                                                    color: "#ddaa77",
-                                                    borderRadius: 4,
-                                                }}
-                                            >
-                                                {tag}
-                                            </span>
-                                        ))}
-                                        {game.community_tags.length > 4 && (
-                                            <span style={{ fontSize: 9, color: "#666" }}>+{game.community_tags.length - 4}</span>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Compatibility & Reviews row */}
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-                                    {/* Deck status */}
-                                    {game.deck_status && (
-                                        <span
-                                            style={{
-                                                fontSize: 9,
-                                                padding: "3px 8px",
-                                                backgroundColor: `${DECK_STATUS_COLORS[game.deck_status.toLowerCase()] || "#888"}22`,
-                                                color: DECK_STATUS_COLORS[game.deck_status.toLowerCase()] || "#888",
-                                                borderRadius: 4,
-                                                fontWeight: 500,
-                                                ...getHighlightStyle("deck_status"),
-                                            }}
-                                        >
-                                            Deck: {game.deck_status}
-                                        </span>
-                                    )}
-
-                                    {/* ProtonDB */}
-                                    {game.protondb_tier && (
-                                        <span
-                                            style={{
-                                                fontSize: 9,
-                                                padding: "3px 8px",
-                                                backgroundColor: `${PROTONDB_COLORS[game.protondb_tier.toLowerCase()] || "#888"}22`,
-                                                color: PROTONDB_COLORS[game.protondb_tier.toLowerCase()] || "#888",
-                                                borderRadius: 4,
-                                                fontWeight: 500,
-                                                ...getHighlightStyle("protondb_tier"),
-                                            }}
-                                        >
-                                            ProtonDB: {game.protondb_tier}
-                                        </span>
-                                    )}
-
-                                    {/* Steam review */}
-                                    {game.steam_review_score > 0 && (
-                                        <span
-                                            style={{
-                                                fontSize: 9,
-                                                padding: "3px 8px",
-                                                backgroundColor: `${getReviewColor(game.steam_review_score)}22`,
-                                                color: getReviewColor(game.steam_review_score),
-                                                borderRadius: 4,
-                                                fontWeight: 500,
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: 4,
-                                                ...getHighlightStyle("steam_review_score"),
-                                            }}
-                                        >
-                                            <FaStar size={8} />
-                                            {game.steam_review_description || `${game.steam_review_score}/10`}
-                                        </span>
-                                    )}
-
-                                    {/* Metacritic */}
-                                    {game.metacritic_score > 0 && (
-                                        <span
-                                            style={{
-                                                fontSize: 9,
-                                                padding: "3px 8px",
-                                                backgroundColor: `${getMetacriticColor(game.metacritic_score)}22`,
-                                                color: getMetacriticColor(game.metacritic_score),
-                                                borderRadius: 4,
-                                                fontWeight: 500,
-                                                ...getHighlightStyle("metacritic_score"),
-                                            }}
-                                        >
-                                            MC: {game.metacritic_score}
-                                        </span>
-                                    )}
-
-                                    {/* No metadata indicators */}
-                                    {!game.deck_status && !game.protondb_tier && game.steam_review_score === 0 && game.metacritic_score === 0 && (
-                                        <span style={{ fontSize: 9, color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
-                                            <FaTimes size={8} />
-                                            No compatibility/review data
-                                        </span>
-                                    )}
-                                </div>
-                                </Focusable>
-
-                                {/* Action buttons */}
-                                <Focusable
-                                    flow-children="row"
-                                    style={{ display: "flex", gap: 6 }}
-                                >
-                                    <Focusable
-                                        onActivate={() => gameInPlayNext && !gameJustAdded ? handleRemoveFromPlayNext(game.appid) : handleAddToPlayNext(game)}
-                                        style={{
-                                            flex: 1,
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            gap: 4,
-                                            padding: "6px",
-                                            backgroundColor: gameJustAdded ? "#88ff8833" : (gameInPlayNext ? "#88aa8833" : "#ffffff11"),
-                                            borderRadius: 6,
-                                            border: "2px solid transparent",
-                                            cursor: "pointer",
-                                        }}
-                                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
-                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
-                                    >
-                                        <FaListUl size={10} style={{ color: gameJustAdded ? "#88ff88" : (gameInPlayNext ? "#88aa88" : "#888") }} />
-                                        <span style={{ fontSize: 9, color: gameJustAdded ? "#88ff88" : (gameInPlayNext ? "#88aa88" : "#aaa") }}>
-                                            {gameJustAdded ? "Added!" : (gameInPlayNext ? "Remove" : "Play Next")}
-                                        </span>
                                     </Focusable>
-                                    {!gameExcluded && (
+
+                                    {/* Playtime row */}
+                                    <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#aaa", ...getHighlightStyle("playtime_forever") }}>
+                                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                            <FaClock size={9} />
+                                            {formatPlaytime(game.playtime_forever)}
+                                        </span>
+                                        <span style={{ color: "#666" }}>•</span>
+                                        <span style={{ ...getHighlightStyle("rtime_last_played") }}>
+                                            Last: {formatLastPlayed(game.rtime_last_played)}
+                                        </span>
+                                    </div>
+
+                                    <GameMetadataRow game={{
+                                        size_on_disk: getSizeOnDisk(game.appid) ?? game.size_on_disk,
+                                        rtime_purchased: getPurchaseDate(game.appid) ?? game.rtime_purchased,
+                                        release_date: game.release_date
+                                    }} />
+
+                                    {/* Genres */}
+                                    {game.genres && game.genres.length > 0 && (
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, ...getHighlightStyle("genres") }}>
+                                            {game.genres.slice(0, 4).map((genre, i) => (
+                                                <span
+                                                    key={i}
+                                                    style={{
+                                                        fontSize: 9,
+                                                        padding: "2px 6px",
+                                                        backgroundColor: "#4488aa33",
+                                                        color: "#88ccff",
+                                                        borderRadius: 4,
+                                                    }}
+                                                >
+                                                    {genre}
+                                                </span>
+                                            ))}
+                                            {game.genres.length > 4 && (
+                                                <span style={{ fontSize: 9, color: "#666" }}>+{game.genres.length - 4}</span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Tags (Steam features) */}
+                                    {game.tags && game.tags.length > 0 && (
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, ...getHighlightStyle("tags") }}>
+                                            <FaTag size={8} style={{ color: "#666", marginTop: 2 }} />
+                                            {game.tags.slice(0, 3).map((tag, i) => (
+                                                <span
+                                                    key={i}
+                                                    style={{
+                                                        fontSize: 9,
+                                                        padding: "2px 6px",
+                                                        backgroundColor: "#ffffff11",
+                                                        color: "#999",
+                                                        borderRadius: 4,
+                                                    }}
+                                                >
+                                                    {tag}
+                                                </span>
+                                            ))}
+                                            {game.tags.length > 3 && (
+                                                <span style={{ fontSize: 9, color: "#666" }}>+{game.tags.length - 3}</span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Community tags */}
+                                    {game.community_tags && game.community_tags.length > 0 && (
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, ...getHighlightStyle("community_tags") }}>
+                                            {game.community_tags.slice(0, 4).map((tag, i) => (
+                                                <span
+                                                    key={i}
+                                                    style={{
+                                                        fontSize: 9,
+                                                        padding: "2px 6px",
+                                                        backgroundColor: "#aa886622",
+                                                        color: "#ddaa77",
+                                                        borderRadius: 4,
+                                                    }}
+                                                >
+                                                    {tag}
+                                                </span>
+                                            ))}
+                                            {game.community_tags.length > 4 && (
+                                                <span style={{ fontSize: 9, color: "#666" }}>+{game.community_tags.length - 4}</span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Compatibility & Reviews row */}
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+                                        {/* Deck status */}
+                                        {game.deck_status && (
+                                            <span
+                                                style={{
+                                                    fontSize: 9,
+                                                    padding: "3px 8px",
+                                                    backgroundColor: `${DECK_STATUS_COLORS[game.deck_status.toLowerCase()] || "#888"}22`,
+                                                    color: DECK_STATUS_COLORS[game.deck_status.toLowerCase()] || "#888",
+                                                    borderRadius: 4,
+                                                    fontWeight: 500,
+                                                    ...getHighlightStyle("deck_status"),
+                                                }}
+                                            >
+                                                Deck: {game.deck_status}
+                                            </span>
+                                        )}
+
+                                        {/* ProtonDB */}
+                                        {game.protondb_tier && (
+                                            <span
+                                                style={{
+                                                    fontSize: 9,
+                                                    padding: "3px 8px",
+                                                    backgroundColor: `${PROTONDB_COLORS[game.protondb_tier.toLowerCase()] || "#888"}22`,
+                                                    color: PROTONDB_COLORS[game.protondb_tier.toLowerCase()] || "#888",
+                                                    borderRadius: 4,
+                                                    fontWeight: 500,
+                                                    ...getHighlightStyle("protondb_tier"),
+                                                }}
+                                            >
+                                                ProtonDB: {game.protondb_tier}
+                                            </span>
+                                        )}
+
+                                        {/* Steam review */}
+                                        {game.steam_review_score > 0 && (
+                                            <span
+                                                style={{
+                                                    fontSize: 9,
+                                                    padding: "3px 8px",
+                                                    backgroundColor: `${getReviewColor(game.steam_review_score)}22`,
+                                                    color: getReviewColor(game.steam_review_score),
+                                                    borderRadius: 4,
+                                                    fontWeight: 500,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: 4,
+                                                    ...getHighlightStyle("steam_review_score"),
+                                                }}
+                                            >
+                                                <FaStar size={8} />
+                                                {game.steam_review_description || `${game.steam_review_score}/10`}
+                                            </span>
+                                        )}
+
+                                        {/* Metacritic */}
+                                        {game.metacritic_score > 0 && (
+                                            <span
+                                                style={{
+                                                    fontSize: 9,
+                                                    padding: "3px 8px",
+                                                    backgroundColor: `${getMetacriticColor(game.metacritic_score)}22`,
+                                                    color: getMetacriticColor(game.metacritic_score),
+                                                    borderRadius: 4,
+                                                    fontWeight: 500,
+                                                    ...getHighlightStyle("metacritic_score"),
+                                                }}
+                                            >
+                                                MC: {game.metacritic_score}
+                                            </span>
+                                        )}
+
+                                        {/* No metadata indicators */}
+                                        {!game.deck_status && !game.protondb_tier && game.steam_review_score === 0 && game.metacritic_score === 0 && (
+                                            <span style={{ fontSize: 9, color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
+                                                <FaTimes size={8} />
+                                                No compatibility/review data
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {/* Action buttons */}
+                                    <Focusable
+                                        flow-children="row"
+                                        style={{ display: "flex", gap: 6 }}
+                                    >
                                         <Focusable
-                                            onActivate={() => handleExcludeGame(game)}
+                                            onActivate={() => gameInPlayNext && !gameJustAdded ? handleRemoveFromPlayNext(game.appid) : handleAddToPlayNext(game)}
                                             style={{
                                                 flex: 1,
                                                 display: "flex",
@@ -716,7 +767,7 @@ export function GamesListModal({
                                                 justifyContent: "center",
                                                 gap: 4,
                                                 padding: "6px",
-                                                backgroundColor: "#ff666622",
+                                                backgroundColor: gameJustAdded ? "#88ff8833" : (gameInPlayNext ? "#88aa8833" : "#ffffff11"),
                                                 borderRadius: 6,
                                                 border: "2px solid transparent",
                                                 cursor: "pointer",
@@ -724,13 +775,36 @@ export function GamesListModal({
                                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                                             onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                                         >
-                                            <FaBan size={10} style={{ color: "#ff6666" }} />
-                                            <span style={{ fontSize: 9, color: "#ff6666" }}>Exclude</span>
+                                            <FaListUl size={10} style={{ color: gameJustAdded ? "#88ff88" : (gameInPlayNext ? "#88aa88" : "#888") }} />
+                                            <span style={{ fontSize: 9, color: gameJustAdded ? "#88ff88" : (gameInPlayNext ? "#88aa88" : "#aaa") }}>
+                                                {gameJustAdded ? "Added!" : (gameInPlayNext ? "Remove" : "Play Next")}
+                                            </span>
                                         </Focusable>
-                                    )}
+                                        {!gameExcluded && (
+                                            <Focusable
+                                                onActivate={() => handleExcludeGame(game)}
+                                                style={{
+                                                    flex: 1,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    gap: 4,
+                                                    padding: "6px",
+                                                    backgroundColor: "#ff666622",
+                                                    borderRadius: 6,
+                                                    border: "2px solid transparent",
+                                                    cursor: "pointer",
+                                                }}
+                                                onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                            >
+                                                <FaBan size={10} style={{ color: "#ff6666" }} />
+                                                <span style={{ fontSize: 9, color: "#ff6666" }}>Exclude</span>
+                                            </Focusable>
+                                        )}
+                                    </Focusable>
                                 </Focusable>
-                            </div>
-                        </PanelSectionRow>
+                            </PanelSectionRow>
                         );
                     })
                 )}

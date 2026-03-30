@@ -25,7 +25,7 @@ import { FaMagic, FaCog, FaDice, FaCompass, FaBrain, FaLeaf, FaFilter, FaTimes, 
 import { call } from "@decky/api";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { useLibraryStatus } from "../hooks/useLibraryStatus";
-import { useSuggestion, getInstalledAppIds as getInstalledAppIdsFromHook, getCollectionAppIds } from "../hooks/useSuggestion";
+import { useSuggestion, getInstalledAppIds as getInstalledAppIdsFromHook, getCollectionAppIds, getSizeOnDiskMap, getPurchaseDateMap, getReleaseDateMap } from "../hooks/useSuggestion";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { useFilterPresets } from "../hooks/useFilterPresets";
@@ -36,6 +36,7 @@ import { navigateToNonSteamGames } from "./NonSteamGamesModal";
 import { navigateToPlayNext } from "./PlayNextModal";
 import { navigateToHistory } from "./HistoryModal";
 import { navigateToExcludedGames } from "./ExcludedGamesModal";
+import { navigateToLibraryBrowser } from "./LibraryBrowser";
 import { navigateToSpinWheel } from "./SpinWheelPage";
 import { navigateToVersus } from "./VersusPage";
 import { navigateToSimilarTo } from "./SimilarToPage";
@@ -257,6 +258,15 @@ export function SuggestMeRoot() {
       if (filters.exclude_collections?.length) {
         enhancedFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
       }
+      if (filters.min_size_mb !== undefined || filters.max_size_mb !== undefined) {
+        enhancedFilters.size_on_disk_map = getSizeOnDiskMap();
+      }
+      if (filters.purchase_date_after !== undefined || filters.purchase_date_before !== undefined) {
+        enhancedFilters.purchase_date_map = getPurchaseDateMap();
+      }
+      if (filters.release_date_after !== undefined || filters.release_date_before !== undefined) {
+        enhancedFilters.release_date_map = getReleaseDateMap();
+      }
       const result = await call<[object, number[]], { count: number; excluded_count: number }>("get_candidates_count", enhancedFilters, installedAppIds);
       if (result) setCandidatesCount({ candidates: result.count, excluded: result.excluded_count });
     } catch (e) {
@@ -395,9 +405,9 @@ export function SuggestMeRoot() {
             width: '100%'
           }}
         >
-          {/* Steam Games Count */}
+          {/* Steam Games Count - opens Library Browser */}
           <Focusable
-            onActivate={steamGamesCount > 0 ? () => Navigation.Navigate("/library") : undefined}
+            onActivate={steamGamesCount > 0 ? navigateToLibraryBrowser : undefined}
             style={{
               flex: 1,
               display: 'flex',
@@ -961,6 +971,15 @@ export function SuggestMeRoot() {
                     if (filters.exclude_collections?.length) {
                       spinFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
                     }
+                    if (filters.min_size_mb !== undefined || filters.max_size_mb !== undefined) {
+                      spinFilters.size_on_disk_map = getSizeOnDiskMap();
+                    }
+                    if (filters.purchase_date_after !== undefined || filters.purchase_date_before !== undefined) {
+                      spinFilters.purchase_date_map = getPurchaseDateMap();
+                    }
+                    if (filters.release_date_after !== undefined || filters.release_date_before !== undefined) {
+                      spinFilters.release_date_map = getReleaseDateMap();
+                    }
                     navigateToSpinWheel(
                       spinFilters,
                       getInstalledAppIds(),
@@ -986,6 +1005,15 @@ export function SuggestMeRoot() {
                     }
                     if (filters.exclude_collections?.length) {
                       stFilters.exclude_collection_appids = getCollectionAppIds(filters.exclude_collections);
+                    }
+                    if (filters.min_size_mb !== undefined || filters.max_size_mb !== undefined) {
+                      stFilters.size_on_disk_map = getSizeOnDiskMap();
+                    }
+                    if (filters.purchase_date_after !== undefined || filters.purchase_date_before !== undefined) {
+                      stFilters.purchase_date_map = getPurchaseDateMap();
+                    }
+                    if (filters.release_date_after !== undefined || filters.release_date_before !== undefined) {
+                      stFilters.release_date_map = getReleaseDateMap();
                     }
                     navigateToSimilarTo(
                       stFilters,
@@ -1034,6 +1062,7 @@ export function SuggestMeRoot() {
                   onReroll={handleReroll}
                   onLaunch={handleLaunch}
                   onClear={handleClearSuggestion}
+                  releaseDate={currentModeSuggestion.game.release_date}
                 />
                 <PanelSectionRow>
                   <Focusable

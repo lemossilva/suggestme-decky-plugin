@@ -1,7 +1,7 @@
 # SuggestMe
 
 ![SuggestMe](https://img.shields.io/badge/Decky-Plugin-blue)
-![Version](https://img.shields.io/badge/release-v1.4.1-green)
+![Version](https://img.shields.io/badge/release-v1.5.0-green)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 
 ![SuggestMe Promo](assets/promo.png)
@@ -37,6 +37,7 @@ Fine-tune how Intelligent, Fresh Air, and Similar To modes score games:
 - **Deck Compatibility** - Filter by Valve Deck Verified status or ProtonDB ratings
 - **Collections** - Filter by your Steam user collections
 - **Game Review** - Filter by game review (positive, mixed, negative) and metacritic score
+- **Advanced Filters** - Filter by release date, purchase date, title regex (with live validation), and size on disk
 - **Filter Presets** - Save up to 5 filter combinations and quickly switch between them from the main screen
 
 ### Non-Steam Games Support
@@ -52,7 +53,7 @@ Fine-tune how Intelligent, Fresh Air, and Similar To modes score games:
 - **Spin Wheel** - Can't decide even with suggestions? Let the Spin Wheel randomly pick a game for you from your filtered candidates. The wheel is fully responsive and looks great on both the Deck and external displays.
 - **Track history** - Previously suggested games are tracked per-mode with quick actions to launch them, add them to Play Next, or exclude them directly from the history view.
 - **Play Next & Excluded Lists** - Add games to a queue to play later, or exclude games from ever being suggested
-- **Steam Collections Integration** - Sync your Play Next queue and Excluded games directly to native Steam Collections
+- **Steam Collections Integration** - Sync your Play Next queue and Excluded games directly to native Steam Collections, with optional auto-sync on every change
 - **Steam UI integration** - "Launch Game" button takes you directly to the game's library page
 
 ## Screenshots
@@ -356,6 +357,7 @@ BSD-3-Clause License - See [LICENSE](LICENSE) for details.
 - **Author**: Guilherme Lemos
 - **Framework**: [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)
 - **Icons**: [React Icons](https://react-icons.github.io/react-icons/)
+- **Inspiration**: Advanced filter concepts inspired by [TabMaster](https://github.com/Tormak9970/TabMaster)
 
 ## Support
 

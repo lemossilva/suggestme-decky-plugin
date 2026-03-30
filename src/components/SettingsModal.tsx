@@ -577,16 +577,23 @@ const RawgApiKeySection = () => {
 };
 
 const GeneralSettingsPage = () => {
-    const { config, setHistoryLimit, setModeOrder, setDateFormat } = useSuggestMeConfig();
+    const { config, setHistoryLimit, setModeOrder, setDateFormat, setAutoSyncPlayNextCollection, setAutoSyncExcludedCollection, setAutoSyncNewGames, setSpinWheelBannerColors } = useSuggestMeConfig();
     const [historyLimit, setHistoryLimitState] = useState(config.history_limit || 50);
     const [modeOrder, setModeOrderState] = useState<SuggestMode[]>(config.mode_order || ["luck", "guided", "intelligent", "fresh_air"]);
     const [dateFormat, setDateFormatState] = useState<'US' | 'EU' | 'ISO'>(config.date_format || 'US');
+    const [spinWheelBannerColors, setSpinWheelBannerColorsState] = useState(config.spin_wheel_banner_colors || false);
 
     useEffect(() => {
         if (config.date_format) {
             setDateFormatState(config.date_format);
         }
     }, [config.date_format]);
+
+    useEffect(() => {
+        if (config.spin_wheel_banner_colors !== undefined) {
+            setSpinWheelBannerColorsState(config.spin_wheel_banner_colors);
+        }
+    }, [config.spin_wheel_banner_colors]);
 
     useEffect(() => {
         if (config.history_limit) {
@@ -634,6 +641,11 @@ const GeneralSettingsPage = () => {
         await setModeOrder(newOrder);
     };
 
+    const handleSpinWheelBannerColorsChange = async (value: boolean) => {
+        setSpinWheelBannerColorsState(value);
+        await setSpinWheelBannerColors(value);
+    };
+
     return (
         <ScrollableContent>
             <PanelSection title="Display">
@@ -648,6 +660,17 @@ const GeneralSettingsPage = () => {
                         ]}
                         selectedOption={dateFormat}
                         onChange={handleDateFormatChange}
+                    />
+                </PanelSectionRow>
+            </PanelSection>
+
+            <PanelSection title="Spin Wheel">
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Use banner colors"
+                        description="Extract dominant colors from game banners for wheel slices (slower but more colorful)"
+                        checked={spinWheelBannerColors}
+                        onChange={(val) => handleSpinWheelBannerColorsChange(val)}
                     />
                 </PanelSectionRow>
             </PanelSection>
@@ -724,6 +747,38 @@ const GeneralSettingsPage = () => {
                         </PanelSectionRow>
                     ))}
                 </div>
+            </PanelSection>
+
+            <PanelSection title="Auto-Sync">
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Sync new games on load"
+                        description="Check for newly purchased Steam games every time the plugin starts"
+                        checked={config.auto_sync_new_games !== false}
+                        onChange={(val) => setAutoSyncNewGames(val)}
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4 }}>
+                        When enabled, SuggestMe checks your Steam library for new games each time it loads. New games are added to the cache and their metadata (genres, tags, ratings) is fetched automatically. This runs silently in the background and takes a few seconds.
+                    </div>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Auto-sync Play Next collection"
+                        description="Sync Play Next list to a Steam collection on every change"
+                        checked={config.auto_sync_play_next_collection || false}
+                        onChange={(val) => setAutoSyncPlayNextCollection(val)}
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Auto-sync Excluded collection"
+                        description="Sync Excluded Games list to a Steam collection on every change"
+                        checked={config.auto_sync_excluded_collection || false}
+                        onChange={(val) => setAutoSyncExcludedCollection(val)}
+                    />
+                </PanelSectionRow>
             </PanelSection>
         </ScrollableContent>
     );
@@ -1073,7 +1128,7 @@ const AboutPage = () => {
             <PanelSection>
                 <PanelSectionRow>
                     <Focusable style={{ width: '100%', textAlign: 'center', padding: '12px 0' }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>SuggestMe v1.4.1</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>SuggestMe v1.5.0</div>
                         <div style={{ fontSize: 11, color: '#888' }}>
                             A smart game recommender for your Steam library.
                         </div>

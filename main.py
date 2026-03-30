@@ -40,6 +40,9 @@ class Game:
     name: str
     playtime_forever: int = 0
     rtime_last_played: Optional[int] = None
+    rtime_purchased: Optional[int] = None
+    release_date: Optional[int] = None
+    size_on_disk: Optional[int] = None
     genres: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     community_tags: list[str] = field(default_factory=list)
@@ -66,6 +69,9 @@ class Game:
             name=data.get("name", "Unknown"),
             playtime_forever=data.get("playtime_forever", 0),
             rtime_last_played=data.get("rtime_last_played"),
+            rtime_purchased=data.get("rtime_purchased"),
+            release_date=data.get("release_date"),
+            size_on_disk=data.get("size_on_disk"),
             genres=data.get("genres", []),
             tags=data.get("tags", []),
             community_tags=data.get("community_tags", []),
@@ -95,6 +101,7 @@ class SuggestionHistoryEntry:
     filters: Optional[dict] = None
     preset_name: Optional[str] = None
     extra_data: Optional[dict] = None
+    release_date: Optional[int] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -111,6 +118,7 @@ class SuggestionHistoryEntry:
             filters=data.get("filters"),
             preset_name=data.get("preset_name"),
             extra_data=data.get("extra_data"),
+            release_date=data.get("release_date"),
         )
 
 
@@ -300,6 +308,16 @@ DEFAULT_SETTINGS = {
         "min_steam_review_score": None,
         "min_metacritic_score": None,
         "include_games_without_reviews": True,
+        "release_date_after": None,
+        "release_date_before": None,
+        "include_unknown_release_date": True,
+        "purchase_date_after": None,
+        "purchase_date_before": None,
+        "include_unknown_purchase_date": True,
+        "title_regex": None,
+        "title_regex_case_sensitive": False,
+        "min_size_mb": None,
+        "max_size_mb": None,
     },
     "filter_presets": [None, None, None, None, None],
     "active_preset_index": None,
@@ -310,8 +328,13 @@ DEFAULT_SETTINGS = {
     "date_format": "US",
     "luck_spin_wheel_enabled": False,
     "spin_wheel_silent": False,
-    "exclude_play_next_from_suggestions": False
+    "exclude_play_next_from_suggestions": False,
+    "auto_sync_play_next_collection": False,
+    "auto_sync_excluded_collection": False,
+    "data_version": 0,
 }
+
+DATA_VERSION_CURRENT = 2
 
 
 class Plugin:
@@ -529,6 +552,7 @@ class Plugin:
             filters=filters,
             preset_name=preset_name,
             extra_data=extra_data,
+            release_date=game.release_date,
         )
         self.history.insert(0, entry)
         limit = self.settings.get("history_limit", 50)
@@ -598,9 +622,16 @@ class Plugin:
         
         decky.logger.info(f"Loaded {len(self.library_cache)} games from cache")
         
-        if self.library_cache and self.settings.get("steam_api_key") and self.settings.get("steam_id"):
-            decky.logger.info("Scheduling auto-sync background task...")
-            self._auto_sync_task = asyncio.create_task(self._run_auto_sync())
+        current_data_version = self.settings.get("data_version", 0)
+        if current_data_version < DATA_VERSION_CURRENT and self.library_cache:
+            decky.logger.info(f"Data migration needed: v{current_data_version} -> v{DATA_VERSION_CURRENT}")
+            asyncio.create_task(self._run_data_migration(current_data_version))
+        elif self.library_cache and self.settings.get("steam_api_key") and self.settings.get("steam_id"):
+            if self.settings.get("auto_sync_new_games", True):
+                decky.logger.info("Scheduling auto-sync background task...")
+                self._auto_sync_task = asyncio.create_task(self._run_auto_sync())
+            else:
+                decky.logger.info("Auto-sync new games disabled, skipping")
 
     async def _run_auto_sync(self):
         """Background task for auto-sync on load. Runs after plugin initialization."""
@@ -617,6 +648,96 @@ class Plugin:
             raise
         except Exception as e:
             decky.logger.error(f"Auto-sync background task failed: {e}")
+
+    async def _run_data_migration(self, from_version: int):
+        """Run data migrations to update existing game data with new fields."""
+        try:
+            await asyncio.sleep(2)
+            
+            if from_version < 1:
+                await self._migrate_v1_release_dates()
+            
+            if from_version < 2:
+                await self._migrate_v2_runtime_metadata()
+            
+            self.settings["data_version"] = DATA_VERSION_CURRENT
+            self._save_settings()
+            decky.logger.info(f"Data migration complete. Now at version {DATA_VERSION_CURRENT}")
+            
+            if self.settings.get("steam_api_key") and self.settings.get("steam_id"):
+                self._auto_sync_task = asyncio.create_task(self._run_auto_sync())
+                
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            decky.logger.error(f"Data migration failed: {e}")
+
+    async def _migrate_v1_release_dates(self):
+        """Migration v1: Fetch release_date for games that don't have it."""
+        games_needing_migration = [
+            g for g in self.library_cache 
+            if g.release_date is None and (not g.is_non_steam or g.matched_appid)
+        ]
+        
+        if not games_needing_migration:
+            decky.logger.info("No games need release_date migration")
+            return
+        
+        decky.logger.info(f"Migrating release_date for {len(games_needing_migration)} games...")
+        
+        await decky.emit("suggestme_library_status_changed", {
+            "is_refreshing": True,
+            "error": None,
+        })
+        
+        session = await self._get_session()
+        batch_size = 25
+        
+        for i in range(0, len(games_needing_migration), batch_size):
+            batch = games_needing_migration[i:i + batch_size]
+            
+            async def fetch_release_date(game: Game):
+                try:
+                    fetch_appid = game.matched_appid if game.is_non_steam and game.matched_appid else game.appid
+                    details = await self._fetch_game_details(fetch_appid, session)
+                    if isinstance(details, dict):
+                        release_info = details.get("release_date", {})
+                        if release_info and not release_info.get("coming_soon"):
+                            game.release_date = self._parse_release_date(release_info.get("date", ""))
+                except Exception as e:
+                    decky.logger.debug(f"Failed to fetch release_date for {game.name}: {e}")
+            
+            await asyncio.gather(*[fetch_release_date(g) for g in batch])
+            await asyncio.sleep(0.05)
+            
+            current_progress = min(i + batch_size, len(games_needing_migration))
+            await decky.emit("suggestme_refresh_progress", {
+                "current": current_progress,
+                "total": len(games_needing_migration),
+                "phase": "migration",
+                "phase_label": "Updating release dates",
+            })
+        
+        self._save_library_cache()
+        
+        await decky.emit("suggestme_library_status_changed", {
+            "is_refreshing": False,
+            "total_games": len(self.library_cache),
+            "last_refresh": self.last_refresh,
+        })
+        
+        decky.logger.info(f"Release date migration complete for {len(games_needing_migration)} games")
+
+    async def _migrate_v2_runtime_metadata(self):
+        """Migration v2: Fetch size_on_disk and rtime_purchased from local Steam data via frontend."""
+        decky.logger.info("Migration v2: Preparing for runtime metadata (size_on_disk, rtime_purchased)")
+        # The actual data will be fetched by frontend and sent via update_game_runtime_metadata
+        await decky.emit("suggestme_library_status_changed", {
+            "is_refreshing": False,
+            "total_games": len(self.library_cache),
+            "last_refresh": self.last_refresh,
+            "needs_runtime_metadata": True,
+        })
 
     async def _unload(self):
         decky.logger.info("SuggestMe plugin unloading...")
@@ -656,6 +777,10 @@ class Plugin:
             "spin_wheel_silent": self.settings.get("spin_wheel_silent", False),
             "exclude_play_next_from_suggestions": self.settings.get("exclude_play_next_from_suggestions", False),
             "similar_to_filter_pool": self.settings.get("similar_to_filter_pool", False),
+            "auto_sync_play_next_collection": self.settings.get("auto_sync_play_next_collection", False),
+            "auto_sync_excluded_collection": self.settings.get("auto_sync_excluded_collection", False),
+            "auto_sync_new_games": self.settings.get("auto_sync_new_games", True),
+            "spin_wheel_banner_colors": self.settings.get("spin_wheel_banner_colors", False),
         }
 
     async def get_credentials(self) -> dict:
@@ -700,8 +825,28 @@ class Plugin:
         success = self._save_settings()
         return {"success": success}
 
+    async def save_spin_wheel_banner_colors(self, enabled: bool) -> dict:
+        self.settings["spin_wheel_banner_colors"] = enabled
+        success = self._save_settings()
+        return {"success": success}
+
     async def save_exclude_play_next_from_suggestions(self, exclude: bool) -> dict:
         self.settings["exclude_play_next_from_suggestions"] = exclude
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_auto_sync_play_next_collection(self, enabled: bool) -> dict:
+        self.settings["auto_sync_play_next_collection"] = enabled
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_auto_sync_excluded_collection(self, enabled: bool) -> dict:
+        self.settings["auto_sync_excluded_collection"] = enabled
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_auto_sync_new_games(self, enabled: bool) -> dict:
+        self.settings["auto_sync_new_games"] = enabled
         success = self._save_settings()
         return {"success": success}
 
@@ -824,14 +969,23 @@ class Plugin:
         )
         self.play_next_list.append(entry)
         success = self._save_play_next()
-        return {"success": success, "count": len(self.play_next_list)}
+        
+        result = {"success": success, "count": len(self.play_next_list)}
+        if success and self.settings.get("auto_sync_play_next_collection"):
+            result["auto_sync"] = True
+            result["sync_data"] = await self.sync_play_next_to_collection()
+        return result
 
     async def remove_from_play_next(self, appid: int) -> dict:
         original_len = len(self.play_next_list)
         self.play_next_list = [e for e in self.play_next_list if e.appid != appid]
         if len(self.play_next_list) < original_len:
             self._save_play_next()
-            return {"success": True, "count": len(self.play_next_list)}
+            result = {"success": True, "count": len(self.play_next_list)}
+            if self.settings.get("auto_sync_play_next_collection"):
+                result["auto_sync"] = True
+                result["sync_data"] = await self.sync_play_next_to_collection()
+            return result
         return {"success": False, "error": "Game not found in list"}
 
     async def reorder_play_next(self, appid: int, direction: str) -> dict:
@@ -895,14 +1049,23 @@ class Plugin:
         )
         self.excluded_games.append(entry)
         success = self._save_excluded_games()
-        return {"success": success, "count": len(self.excluded_games)}
+        
+        result = {"success": success, "count": len(self.excluded_games)}
+        if success and self.settings.get("auto_sync_excluded_collection"):
+            result["auto_sync"] = True
+            result["sync_data"] = await self.sync_excluded_to_collection()
+        return result
 
     async def remove_from_excluded(self, appid: int) -> dict:
         original_len = len(self.excluded_games)
         self.excluded_games = [e for e in self.excluded_games if e.appid != appid]
         if len(self.excluded_games) < original_len:
             self._save_excluded_games()
-            return {"success": True, "count": len(self.excluded_games)}
+            result = {"success": True, "count": len(self.excluded_games)}
+            if self.settings.get("auto_sync_excluded_collection"):
+                result["auto_sync"] = True
+                result["sync_data"] = await self.sync_excluded_to_collection()
+            return result
         return {"success": False, "error": "Game not found in excluded list"}
 
     async def clear_excluded_games(self) -> dict:
@@ -1016,23 +1179,37 @@ class Plugin:
                 data = await response.json()
                 return data.get("response", {}).get("games", [])
 
-    async def _fetch_game_details(self, appid: int, session: aiohttp.ClientSession = None) -> dict:
+    async def _fetch_game_details(self, appid: int, session: aiohttp.ClientSession = None, retries: int = 3) -> dict:
         url = f"https://store.steampowered.com/api/appdetails"
         params = {"appids": appid}
-        try:
-            if session is None:
-                session = await self._get_session()
-            async with session.get(url, params=params) as response:
-                if response.status != 200:
+        
+        for attempt in range(retries):
+            try:
+                if session is None:
+                    session = await self._get_session()
+                async with session.get(url, params=params) as response:
+                    if response.status == 429:
+                        wait_time = (attempt + 1) * 2
+                        decky.logger.debug(f"Rate limited for {appid}, waiting {wait_time}s (attempt {attempt + 1})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    if response.status != 200:
+                        return {}
+                    data = await response.json()
+                    app_data = data.get(str(appid), {})
+                    if app_data.get("success"):
+                        return app_data.get("data", {})
+                    if attempt < retries - 1:
+                        await asyncio.sleep(0.5)
+                        continue
                     return {}
-                data = await response.json()
-                app_data = data.get(str(appid), {})
-                if app_data.get("success"):
-                    return app_data.get("data", {})
+            except Exception as e:
+                decky.logger.debug(f"Failed to fetch game details for {appid}: {e}")
+                if attempt < retries - 1:
+                    await asyncio.sleep(1)
+                    continue
                 return {}
-        except Exception as e:
-            decky.logger.debug(f"Failed to fetch game details for {appid}: {e}")
-            return {}
+        return {}
 
     async def _fetch_rawg_metacritic(self, appid: int, game_name: str) -> dict:
         """Fetch Metacritic score from RAWG API using Steam appid as primary lookup."""
@@ -1377,14 +1554,42 @@ class Plugin:
         except Exception:
             pass
 
+    def _build_cache_index(self) -> dict[int, Game]:
+        """Build a lookup dict from appid to cached Game for fast merges."""
+        return {g.appid: g for g in self.library_cache}
+
+    def _merge_from_cache(self, game: Game, cached: Game) -> None:
+        """Copy metadata from a cached Game into a fresh Game object (preserves playtime/name from API)."""
+        if cached.genres:
+            game.genres = cached.genres
+        if cached.tags:
+            game.tags = cached.tags
+        if cached.community_tags:
+            game.community_tags = cached.community_tags
+        if cached.release_date:
+            game.release_date = cached.release_date
+        if cached.deck_status:
+            game.deck_status = cached.deck_status
+        if cached.protondb_tier:
+            game.protondb_tier = cached.protondb_tier
+        if cached.steam_review_score:
+            game.steam_review_score = cached.steam_review_score
+        if cached.steam_review_description:
+            game.steam_review_description = cached.steam_review_description
+        if cached.metacritic_score:
+            game.metacritic_score = cached.metacritic_score
+        if cached.metacritic_url:
+            game.metacritic_url = cached.metacritic_url
+
     def _game_has_metadata(self, game: Game) -> bool:
-        """Check if a game already has cached metadata (genres, tags, etc.)"""
-        return bool(game.genres) or bool(game.tags) or bool(game.community_tags) or bool(game.deck_status)
+        """Check if a game already has complete cached metadata (genres AND release_date required)."""
+        has_genres = bool(game.genres) and any(g.strip() for g in game.genres)
+        has_release = game.release_date is not None and game.release_date > 0
+        return has_genres and has_release
 
     async def _fetch_game_metadata_batch(self, games: list[Game], batch_size: int = 25, start_from: int = 0, skip_if_has_metadata: bool = False) -> None:
         use_rawg = bool(self.settings.get("rawg_api_key", ""))
         
-        # Filter games that need metadata fetching
         if skip_if_has_metadata:
             games_to_fetch = [g for g in games if not self._game_has_metadata(g)]
             skipped_count = len(games) - len(games_to_fetch)
@@ -1401,8 +1606,6 @@ class Plugin:
         async def fetch_single(game: Game):
             try:
                 fetch_appid = game.matched_appid if game.is_non_steam and game.matched_appid else game.appid
-                
-                # Skip RAWG call if game already has metacritic score (persisted from previous sync)
                 need_rawg = use_rawg and game.metacritic_score == 0
                 
                 details, review_summary, deck_status, protondb, steam_tags = await asyncio.gather(
@@ -1413,7 +1616,8 @@ class Plugin:
                     self._fetch_steam_tags(fetch_appid, session),
                     return_exceptions=True
                 )
-                if isinstance(details, dict):
+                
+                if isinstance(details, dict) and details:
                     genres = details.get("genres", [])
                     game.genres = [self._clean_text(g.get("description", "")) for g in genres]
                     categories = details.get("categories", [])
@@ -1422,8 +1626,10 @@ class Plugin:
                     if metacritic:
                         game.metacritic_score = metacritic.get("score", 0) or 0
                         game.metacritic_url = metacritic.get("url", "") or ""
+                    release_info = details.get("release_date", {})
+                    if release_info and not release_info.get("coming_soon"):
+                        game.release_date = self._parse_release_date(release_info.get("date", ""))
                 
-                # Fallback to RAWG API only if we still don't have Metacritic data after Steam fetch
                 if game.metacritic_score == 0 and need_rawg:
                     rawg_data = await self._fetch_rawg_metacritic(fetch_appid, game.name)
                     if rawg_data:
@@ -1447,6 +1653,8 @@ class Plugin:
             await asyncio.gather(*[fetch_single(g) for g in batch])
             await asyncio.sleep(0.05)
             
+            self._save_library_cache()
+            
             current_progress = min(i + batch_size, len(games))
             await decky.emit("suggestme_refresh_progress", {
                 "current": current_progress,
@@ -1455,12 +1663,64 @@ class Plugin:
                 "phase_label": "Fetching metadata",
             })
             self._save_sync_progress(current_progress, len(games))
+        
+        failed_games = [g for g in games if not self._game_has_metadata(g)]
+        if failed_games:
+            decky.logger.info(f"Recovery pass: {len(failed_games)} games missing metadata, retrying sequentially...")
+            await decky.emit("suggestme_refresh_progress", {
+                "current": 0,
+                "total": len(failed_games),
+                "phase": "metadata_recovery",
+                "phase_label": f"Recovering metadata for {len(failed_games)} games...",
+            })
+            
+            recovered = 0
+            for i, game in enumerate(failed_games):
+                await fetch_single(game)
+                if self._game_has_metadata(game):
+                    recovered += 1
+                await asyncio.sleep(0.4)
+                
+                if (i + 1) % 10 == 0 or i == len(failed_games) - 1:
+                    self._save_library_cache()
+                    await decky.emit("suggestme_refresh_progress", {
+                        "current": i + 1,
+                        "total": len(failed_games),
+                        "phase": "metadata_recovery",
+                        "phase_label": f"Recovering metadata ({i + 1}/{len(failed_games)})...",
+                    })
+            
+            decky.logger.info(f"Recovery pass done: recovered {recovered}/{len(failed_games)} games")
 
     def _clean_text(self, text: str) -> str:
         if not text:
             return ""
         cleaned = ''.join(c for c in text if ord(c) < 0x0400 or ord(c) > 0x04FF)
         return cleaned.strip()
+
+    def _parse_release_date(self, date_str: str) -> Optional[int]:
+        """Parse Steam release date string to Unix timestamp."""
+        if not date_str:
+            return None
+        
+        import calendar
+        from datetime import datetime
+        
+        formats = [
+            "%b %d, %Y",  # "May 1, 2020"
+            "%d %b, %Y",  # "1 May, 2020"
+            "%B %d, %Y",  # "May 01, 2020"
+            "%Y",         # "2020" (year only)
+        ]
+        
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(date_str.strip(), fmt)
+                return int(calendar.timegm(dt.timetuple()))
+            except ValueError:
+                continue
+        
+        return None
 
     async def refresh_library(self) -> dict:
         if self.is_refreshing:
@@ -1498,6 +1758,8 @@ class Plugin:
                 "phase_label": f"Processing {len(raw_games)} games...",
             })
 
+            cache_index = self._build_cache_index()
+
             games: list[Game] = []
             skipped_playtests = 0
             for raw in raw_games:
@@ -1513,12 +1775,15 @@ class Plugin:
                     img_icon_url=raw.get("img_icon_url", ""),
                     has_community_visible_stats=raw.get("has_community_visible_stats", False),
                 )
+                cached = cache_index.get(game.appid)
+                if cached:
+                    self._merge_from_cache(game, cached)
                 games.append(game)
             
             if skipped_playtests > 0:
                 decky.logger.info(f"Skipped {skipped_playtests} playtest entries")
 
-            await self._fetch_game_metadata_batch(games)
+            await self._fetch_game_metadata_batch(games, skip_if_has_metadata=True)
             self._clear_sync_progress()
 
             existing_non_steam = [g for g in self.library_cache if g.is_non_steam]
@@ -1592,6 +1857,30 @@ class Plugin:
         min_steam_review_score = filters.get("min_steam_review_score")
         min_metacritic_score = filters.get("min_metacritic_score")
         include_games_without_reviews = filters.get("include_games_without_reviews", True)
+        release_date_after = filters.get("release_date_after")
+        release_date_before = filters.get("release_date_before")
+        include_unknown_release_date = filters.get("include_unknown_release_date", True)
+        raw_release_map = filters.get("release_date_map", {})
+        release_date_map = {int(k): v for k, v in raw_release_map.items()} if raw_release_map else {}
+        purchase_date_after = filters.get("purchase_date_after")
+        purchase_date_before = filters.get("purchase_date_before")
+        include_unknown_purchase_date = filters.get("include_unknown_purchase_date", True)
+        raw_purchase_map = filters.get("purchase_date_map", {})
+        purchase_date_map = {int(k): v for k, v in raw_purchase_map.items()} if raw_purchase_map else {}
+        title_regex = filters.get("title_regex")
+        title_regex_case_sensitive = filters.get("title_regex_case_sensitive", False)
+        min_size_mb = filters.get("min_size_mb")
+        max_size_mb = filters.get("max_size_mb")
+        raw_size_map = filters.get("size_on_disk_map", {})
+        size_on_disk_map = {int(k): v for k, v in raw_size_map.items()} if raw_size_map else {}
+        
+        compiled_regex = None
+        if title_regex:
+            try:
+                flags = 0 if title_regex_case_sensitive else re.IGNORECASE
+                compiled_regex = re.compile(title_regex, flags)
+            except re.error:
+                compiled_regex = None
         
         if installed_appids is None:
             installed_appids = set()
@@ -1682,6 +1971,46 @@ class Plugin:
                     if game.metacritic_score < min_metacritic_score:
                         continue
                 elif not include_games_without_reviews:
+                    continue
+
+            if release_date_after is not None or release_date_before is not None:
+                # Use release_date from Steam app overview (rt_original_release_date)
+                # For matched non-steam games, also check matched_appid
+                game_release = release_date_map.get(game.appid)
+                if game_release is None and game.is_non_steam and game.matched_appid:
+                    game_release = release_date_map.get(game.matched_appid)
+                if game_release is None:
+                    if not include_unknown_release_date:
+                        continue
+                else:
+                    if release_date_after is not None and game_release < release_date_after:
+                        continue
+                    if release_date_before is not None and game_release > release_date_before:
+                        continue
+
+            if purchase_date_after is not None or purchase_date_before is not None:
+                game_purchase = game.rtime_purchased or purchase_date_map.get(game.appid)
+                if game_purchase is None:
+                    if not include_unknown_purchase_date:
+                        continue
+                else:
+                    if purchase_date_after is not None and game_purchase < purchase_date_after:
+                        continue
+                    if purchase_date_before is not None and game_purchase > purchase_date_before:
+                        continue
+
+            if compiled_regex is not None:
+                if not compiled_regex.search(game.name):
+                    continue
+
+            if min_size_mb is not None or max_size_mb is not None:
+                size_bytes = size_on_disk_map.get(game.appid)
+                if size_bytes is None:
+                    continue
+                size_mb = size_bytes / (1024 * 1024)
+                if min_size_mb is not None and size_mb < min_size_mb:
+                    continue
+                if max_size_mb is not None and size_mb > max_size_mb:
                     continue
 
             # Collection filtering
@@ -2067,8 +2396,28 @@ class Plugin:
         if selected_game:
             reason = self._build_suggestion_reason(selected_game, mode, profile)
 
+        # Enrich game dict with size_on_disk, purchase_date, release_date from maps
+        game_dict = selected_game.to_dict() if selected_game else None
+        if game_dict and selected_game:
+            appid = selected_game.appid
+            # Get size_on_disk from map
+            size_map = filters.get("size_on_disk_map", {})
+            if size_map and appid in size_map:
+                game_dict["size_on_disk"] = size_map[appid]
+            # Get purchase_date from map
+            purchase_map = filters.get("purchase_date_map", {})
+            if purchase_map and appid in purchase_map:
+                game_dict["rtime_purchased"] = purchase_map[appid]
+            # Get release_date from map (already set for non-steam with matched_appid)
+            release_map = filters.get("release_date_map", {})
+            if release_map:
+                if appid in release_map:
+                    game_dict["release_date"] = release_map[appid]
+                elif selected_game.is_non_steam and selected_game.matched_appid and selected_game.matched_appid in release_map:
+                    game_dict["release_date"] = release_map[selected_game.matched_appid]
+
         return {
-            "game": selected_game.to_dict() if selected_game else None,
+            "game": game_dict,
             "candidates_count": len(candidates),
             "excluded_count": excluded_count,
             "mode_used": mode,
@@ -2123,6 +2472,25 @@ class Plugin:
         
         winner_actual_index = next((i for i, g in enumerate(candidates) if g.appid == selected_game.appid), 0)
         
+        # Enrich winner dict with size_on_disk, purchase_date, release_date from maps
+        winner_dict = selected_game.to_dict()
+        appid = selected_game.appid
+        # Get size_on_disk from map
+        size_map = filters.get("size_on_disk_map", {})
+        if size_map and appid in size_map:
+            winner_dict["size_on_disk"] = size_map[appid]
+        # Get purchase_date from map
+        purchase_map = filters.get("purchase_date_map", {})
+        if purchase_map and appid in purchase_map:
+            winner_dict["rtime_purchased"] = purchase_map[appid]
+        # Get release_date from map
+        release_map = filters.get("release_date_map", {})
+        if release_map:
+            if appid in release_map:
+                winner_dict["release_date"] = release_map[appid]
+            elif selected_game.is_non_steam and selected_game.matched_appid and selected_game.matched_appid in release_map:
+                winner_dict["release_date"] = release_map[selected_game.matched_appid]
+        
         total_candidates = len(candidate_dicts)
         if total_candidates > 1:
             random_offset = random.randint(0, total_candidates - 1)
@@ -2133,7 +2501,7 @@ class Plugin:
             new_winner_index = 0
 
         return {
-            "winner": selected_game.to_dict(),
+            "winner": winner_dict,
             "candidates": shuffled_candidates,
             "winner_index": new_winner_index,
             "candidates_count": len(candidates),
@@ -2372,6 +2740,9 @@ class Plugin:
             raw_games = await self._fetch_owned_games(api_key, steam_id)
             decky.logger.info(f"Found {len(raw_games)} Steam games")
 
+            cache_index = self._build_cache_index()
+            non_steam_cache = {g.original_name.lower().strip(): g for g in self.library_cache if g.is_non_steam}
+
             steam_games: list[Game] = []
             for raw in raw_games:
                 game = Game(
@@ -2382,6 +2753,9 @@ class Plugin:
                     img_icon_url=raw.get("img_icon_url", ""),
                     has_community_visible_stats=raw.get("has_community_visible_stats", False),
                 )
+                cached = cache_index.get(game.appid)
+                if cached:
+                    self._merge_from_cache(game, cached)
                 steam_games.append(game)
 
             await decky.emit("suggestme_refresh_progress", {
@@ -2422,20 +2796,29 @@ class Plugin:
                     original_name=name,
                     match_status="pending"
                 )
+                cached_ns = non_steam_cache.get(name_key)
+                if cached_ns:
+                    self._merge_from_cache(game, cached_ns)
+                    if cached_ns.matched_appid:
+                        game.matched_appid = cached_ns.matched_appid
+                        game.match_status = cached_ns.match_status
                 non_steam_games.append(game)
 
             decky.logger.info("Phase 2: Matching Non-Steam games to Steam store...")
             matched_count = 0
+            unmatched_non_steam = [g for g in non_steam_games if g.match_status == "pending"]
+            already_matched = [g for g in non_steam_games if g.match_status != "pending"]
+            matched_count = sum(1 for g in already_matched if g.matched_appid)
             
-            if non_steam_games:
+            if unmatched_non_steam:
                 await decky.emit("suggestme_refresh_progress", {
                     "current": 0,
-                    "total": len(non_steam_games),
+                    "total": len(unmatched_non_steam),
                     "phase": "non_steam",
-                    "phase_label": f"Matching Non-Steam games (0/{len(non_steam_games)})...",
+                    "phase_label": f"Matching Non-Steam games (0/{len(unmatched_non_steam)})...",
                 })
             
-            for i, game in enumerate(non_steam_games):
+            for i, game in enumerate(unmatched_non_steam):
                 match = await self._search_steam_store(game.original_name)
                 if match:
                     game.matched_appid = match.get("appid")
@@ -2444,12 +2827,12 @@ class Plugin:
                 else:
                     game.match_status = "unmatched"
                 
-                if (i + 1) % 5 == 0 or i == len(non_steam_games) - 1:
+                if (i + 1) % 5 == 0 or i == len(unmatched_non_steam) - 1:
                     await decky.emit("suggestme_refresh_progress", {
                         "current": i + 1,
-                        "total": len(non_steam_games),
+                        "total": len(unmatched_non_steam),
                         "phase": "non_steam",
-                        "phase_label": f"Matching Non-Steam games ({i + 1}/{len(non_steam_games)})...",
+                        "phase_label": f"Matching Non-Steam games ({i + 1}/{len(unmatched_non_steam)})...",
                     })
                 await asyncio.sleep(0.05)
 
@@ -2460,7 +2843,7 @@ class Plugin:
             all_games_to_process.extend([g for g in non_steam_games if g.matched_appid])
 
             decky.logger.info(f"Phase 3: Fetching metadata for {len(all_games_to_process)} games...")
-            await self._fetch_game_metadata_batch(all_games_to_process)
+            await self._fetch_game_metadata_batch(all_games_to_process, skip_if_has_metadata=True)
             self._clear_sync_progress()
 
             self.library_cache = steam_games + non_steam_games
@@ -3106,10 +3489,11 @@ class Plugin:
         self._clear_versus_state()
         return {"success": True}
 
-    async def sync_playtime_for_app(self, appid: int) -> dict:
+    async def sync_playtime_for_app(self, appid: int, size_on_disk: Optional[int] = None) -> dict:
         """
-        Incremental sync for a single game's runtime fields (playtime, last_played).
+        Incremental sync for a single game's runtime fields (playtime, last_played, size_on_disk).
         Called silently after a game closes. Does not emit progress events.
+        size_on_disk is provided by frontend from local Steam appStore (no internet required).
         """
         api_key = self.settings.get("steam_api_key", "")
         steam_id = self.settings.get("steam_id", "")
@@ -3131,6 +3515,11 @@ class Plugin:
             cached_game.playtime_forever = raw_game.get("playtime_forever", 0)
             cached_game.rtime_last_played = raw_game.get("rtime_last_played")
             
+            # Update size_on_disk if provided by frontend (from local appStore)
+            if size_on_disk is not None:
+                cached_game.size_on_disk = size_on_disk
+                decky.logger.info(f"Updated size_on_disk for appid {appid}: {size_on_disk} bytes")
+            
             self._save_library_cache()
             decky.logger.info(f"Synced playtime for appid {appid}: {cached_game.playtime_forever}m")
             
@@ -3139,9 +3528,45 @@ class Plugin:
                 "appid": appid,
                 "playtime_forever": cached_game.playtime_forever,
                 "rtime_last_played": cached_game.rtime_last_played,
+                "size_on_disk": cached_game.size_on_disk,
             }
         except Exception as e:
             decky.logger.error(f"Failed to sync playtime for {appid}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def update_game_runtime_metadata(self, appid: int, size_on_disk: Optional[int] = None, rtime_purchased: Optional[int] = None) -> dict:
+        """
+        Update runtime metadata for a game from local Steam data (no internet required).
+        Called by frontend to provide size_on_disk and rtime_purchased from local appStore.
+        """
+        try:
+            cached_game = next((g for g in self.library_cache if g.appid == appid), None)
+            if not cached_game:
+                return {"success": False, "error": "Game not in local cache"}
+
+            updated = False
+            if size_on_disk is not None:
+                cached_game.size_on_disk = size_on_disk
+                updated = True
+                decky.logger.debug(f"Updated size_on_disk for {cached_game.name}: {size_on_disk} bytes")
+            
+            if rtime_purchased is not None:
+                cached_game.rtime_purchased = rtime_purchased
+                updated = True
+                decky.logger.debug(f"Updated rtime_purchased for {cached_game.name}: {rtime_purchased}")
+            
+            if updated:
+                self._save_library_cache()
+            
+            return {
+                "success": True,
+                "appid": appid,
+                "size_on_disk": cached_game.size_on_disk,
+                "rtime_purchased": cached_game.rtime_purchased,
+                "updated": updated,
+            }
+        except Exception as e:
+            decky.logger.error(f"Failed to update runtime metadata for {appid}: {e}")
             return {"success": False, "error": str(e)}
 
     async def auto_sync_on_load(self) -> dict:

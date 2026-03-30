@@ -1,5 +1,5 @@
 import { ButtonItem, PanelSectionRow, Focusable } from "@decky/ui";
-import { FaExternalLinkAlt, FaDice, FaGamepad, FaTimes, FaStar, FaStore } from "react-icons/fa";
+import { FaExternalLinkAlt, FaDice, FaGamepad, FaTimes, FaStar, FaStore, FaCalendarAlt } from "react-icons/fa";
 import { Game, SuggestMode, MODE_LABELS } from "../types";
 
 interface SuggestionCardProps {
@@ -11,6 +11,7 @@ interface SuggestionCardProps {
   onReroll: () => void;
   onLaunch: () => void;
   onClear: () => void;
+  releaseDate?: number;
 }
 
 export function SuggestionCard({
@@ -22,6 +23,7 @@ export function SuggestionCard({
   onReroll,
   onLaunch,
   onClear,
+  releaseDate,
 }: SuggestionCardProps) {
   const formatPlaytime = (minutes: number): string => {
     if (minutes === 0) return "Never played";
@@ -43,6 +45,12 @@ export function SuggestionCard({
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
     if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
     return `${Math.floor(diffDays / 365)} years ago`;
+  };
+
+  const formatDate = (timestamp?: number): string => {
+    if (!timestamp || timestamp <= 0) return "Unknown";
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
   const effectiveAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
@@ -146,6 +154,28 @@ export function SuggestionCard({
                 {game.metacritic_score}
               </span>
             )}
+          </div>
+        )}
+
+        {/* Release Date only */}
+        {releaseDate && releaseDate > 0 && (
+          <div
+            style={{
+              display: "flex",
+              gap: "12px",
+              flexWrap: "wrap",
+              fontSize: "11px",
+              color: "var(--gpSystemLightGrey)",
+              marginBottom: "8px",
+              padding: "6px 8px",
+              backgroundColor: "rgba(255,255,255,0.05)",
+              borderRadius: "4px",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <FaCalendarAlt style={{ color: "#bb88aa" }} />
+              Released: {formatDate(releaseDate)}
+            </span>
           </div>
         )}
 

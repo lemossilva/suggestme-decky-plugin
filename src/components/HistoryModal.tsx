@@ -12,6 +12,7 @@ import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { hasActiveFilters } from "./FiltersModal";
 import { logger } from "../utils/logger";
+import { ReleaseDateOnly } from "../utils/gameMetadata";
 
 export const HISTORY_ROUTE = '/suggestme/history';
 
@@ -162,7 +163,17 @@ const HistoryItem = ({
                         backgroundColor: '#333'
                     }}
                     onError={(e: any) => {
-                        e.target.style.display = 'none';
+                        // Try library portrait image as fallback
+                        const target = e.target;
+                        if (!target.dataset.triedFallback) {
+                            target.dataset.triedFallback = 'true';
+                            target.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/library_600x900.jpg`;
+                            target.style.width = '30px';
+                            target.style.height = '40px';
+                            target.style.objectFit = 'cover';
+                        } else {
+                            target.style.display = 'none';
+                        }
                     }}
                 />
                 <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
@@ -196,6 +207,7 @@ const HistoryItem = ({
                             </span>
                         )}
                     </div>
+                    <ReleaseDateOnly release_date={entry.release_date} />
                 </div>
                 <FaChevronRight size={8} style={{ color: '#555', flexShrink: 0 }} />
             </Focusable>

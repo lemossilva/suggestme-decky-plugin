@@ -14,6 +14,7 @@ export function useSuggestMeConfig() {
     default_filters: DEFAULT_FILTERS,
     hide_credentials: true,
     has_rawg_api_key: false,
+    spin_wheel_banner_colors: false,
   });
 
   const loadConfig = useCallback(async () => {
@@ -261,6 +262,86 @@ export function useSuggestMeConfig() {
     }
   }, []);
 
+  const setAutoSyncPlayNextCollection = useCallback(async (enabled: boolean): Promise<boolean> => {
+    try {
+      const result = await call<[boolean], { success: boolean }>(
+        "save_auto_sync_play_next_collection",
+        enabled
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          auto_sync_play_next_collection: enabled,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to save auto sync play next setting:", error);
+      return false;
+    }
+  }, []);
+
+  const setAutoSyncExcludedCollection = useCallback(async (enabled: boolean): Promise<boolean> => {
+    try {
+      const result = await call<[boolean], { success: boolean }>(
+        "save_auto_sync_excluded_collection",
+        enabled
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          auto_sync_excluded_collection: enabled,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to save auto sync excluded setting:", error);
+      return false;
+    }
+  }, []);
+
+  const setAutoSyncNewGames = useCallback(async (enabled: boolean): Promise<boolean> => {
+    try {
+      const result = await call<[boolean], { success: boolean }>(
+        "save_auto_sync_new_games",
+        enabled
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          auto_sync_new_games: enabled,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to save auto sync new games setting:", error);
+      return false;
+    }
+  }, []);
+
+  const setSpinWheelBannerColors = useCallback(async (enabled: boolean): Promise<boolean> => {
+    try {
+      const result = await call<[boolean], { success: boolean }>(
+        "save_spin_wheel_banner_colors",
+        enabled
+      );
+      if (result.success) {
+        setConfig((prev) => ({
+          ...prev,
+          spin_wheel_banner_colors: enabled,
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error("[SuggestMe] Failed to save spin wheel banner colors setting:", error);
+      return false;
+    }
+  }, []);
+
   const hasCredentials = Boolean(config.has_steam_api_key && config.has_steam_id);
 
   return {
@@ -280,6 +361,10 @@ export function useSuggestMeConfig() {
     setSpinWheelSilent,
     setSimilarToFilterPool,
     setExcludePlayNextFromSuggestions,
+    setAutoSyncPlayNextCollection,
+    setAutoSyncExcludedCollection,
+    setAutoSyncNewGames,
+    setSpinWheelBannerColors,
     reload: loadConfig,
   };
 }

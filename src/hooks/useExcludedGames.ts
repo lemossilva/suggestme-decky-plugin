@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { call } from "@decky/api";
 import { ExcludedGame, Game } from "../types";
 import { logger } from "../utils/logger";
+import { syncAppidsToCollection } from "../utils/collectionSync";
 
 export function useExcludedGames() {
   const [list, setList] = useState<ExcludedGame[]>([]);
@@ -28,7 +29,7 @@ export function useExcludedGames() {
         matched_appid?: number;
         playtime_forever: number;
         deck_status: string;
-      }], { success: boolean; count?: number }>(
+      }], { success: boolean; count?: number; auto_sync?: boolean; sync_data?: { appids: number[] } }>(
         "add_to_excluded",
         {
           appid: game.appid,
@@ -41,6 +42,9 @@ export function useExcludedGames() {
       );
       if (result.success) {
         await loadList();
+        if (result.auto_sync && result.sync_data?.appids) {
+          syncAppidsToCollection(result.sync_data.appids, "SuggestMe Excluded");
+        }
       }
       return result.success;
     } catch (e) {
@@ -51,9 +55,12 @@ export function useExcludedGames() {
 
   const unexcludeGame = useCallback(async (appid: number): Promise<boolean> => {
     try {
-      const result = await call<[number], { success: boolean }>("remove_from_excluded", appid);
+      const result = await call<[number], { success: boolean; auto_sync?: boolean; sync_data?: { appids: number[] } }>("remove_from_excluded", appid);
       if (result.success) {
         await loadList();
+        if (result.auto_sync && result.sync_data?.appids) {
+          syncAppidsToCollection(result.sync_data.appids, "SuggestMe Excluded");
+        }
       }
       return result.success;
     } catch (e) {

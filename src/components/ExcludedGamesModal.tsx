@@ -8,9 +8,10 @@ import {
 } from "@decky/ui";
 import { routerHook, call, toaster } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FaBan, FaTrash, FaSync, FaChevronRight } from "react-icons/fa";
+import { FaBan, FaTrash, FaSync, FaChevronRight, FaCheck } from "react-icons/fa";
 import { ExcludedGame } from "../types";
 import { logger } from "../utils/logger";
+import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 
 export const EXCLUDED_GAMES_ROUTE = '/suggestme/excluded';
 
@@ -108,12 +109,14 @@ const GameItem = ({
 };
 
 export const ExcludedGamesPage = () => {
+    const { config } = useSuggestMeConfig();
     const [games, setGames] = useState<ExcludedGame[]>([]);
     const [loading, setLoading] = useState(true);
     const [removingAppid, setRemovingAppid] = useState<number | null>(null);
     const [syncing, setSyncing] = useState(false);
     const [clearing, setClearing] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const autoSyncEnabled = config.auto_sync_excluded_collection || false;
 
     const loadList = useCallback(async () => {
         try {
@@ -290,32 +293,52 @@ export const ExcludedGamesPage = () => {
                     </div>
                 </PanelSectionRow>
 
-                <PanelSectionRow>
-                    <ButtonItem
-                        layout="below"
-                        onClick={handleSyncToCollection}
-                        disabled={syncing || games.length === 0}
-                    >
-                        {syncing ? (
-                            <>
-                                <Spinner style={{ marginRight: 8, width: 14, height: 14 }} />
-                                Syncing...
-                            </>
-                        ) : (
-                            <>
-                                <FaSync style={{ marginRight: 8 }} />
-                                Sync to Steam Collection
-                            </>
-                        )}
-                    </ButtonItem>
-                </PanelSectionRow>
+                {autoSyncEnabled ? (
+                    <PanelSectionRow>
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 8, 
+                            padding: '10px 12px',
+                            backgroundColor: '#88ff8822',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            color: '#88ff88'
+                        }}>
+                            <FaCheck size={12} />
+                            Auto-sync enabled — changes sync automatically to Steam collection
+                        </div>
+                    </PanelSectionRow>
+                ) : (
+                    <>
+                        <PanelSectionRow>
+                            <ButtonItem
+                                layout="below"
+                                onClick={handleSyncToCollection}
+                                disabled={syncing || games.length === 0}
+                            >
+                                {syncing ? (
+                                    <>
+                                        <Spinner style={{ marginRight: 8, width: 14, height: 14 }} />
+                                        Syncing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <FaSync style={{ marginRight: 8 }} />
+                                        Sync to Steam Collection
+                                    </>
+                                )}
+                            </ButtonItem>
+                        </PanelSectionRow>
 
-                <PanelSectionRow>
-                    <div style={{ fontSize: 11, color: '#666', padding: '4px 0' }}>
-                        Creates a "SuggestMe Excluded" collection in your Steam Library.
-                        Find it at: <span style={{ color: '#8bb9e0' }}>Library → Collections</span>
-                    </div>
-                </PanelSectionRow>
+                        <PanelSectionRow>
+                            <div style={{ fontSize: 11, color: '#666', padding: '4px 0' }}>
+                                Creates a "SuggestMe Excluded" collection in your Steam Library.
+                                Find it at: <span style={{ color: '#8bb9e0' }}>Library → Collections</span>
+                            </div>
+                        </PanelSectionRow>
+                    </>
+                )}
 
                 <PanelSectionRow>
                     <ButtonItem

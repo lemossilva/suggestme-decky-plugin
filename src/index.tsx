@@ -11,6 +11,7 @@ import { HistoryPage, HISTORY_ROUTE } from "./components/HistoryModal";
 import { SpinWheelPage, SPIN_WHEEL_ROUTE } from "./components/SpinWheelPage";
 import { VersusPageWrapper, VERSUS_ROUTE } from "./components/VersusPage";
 import { SimilarToPageWrapper, SIMILAR_TO_ROUTE } from "./components/SimilarToPage";
+import { LibraryBrowserPage, LIBRARY_BROWSER_ROUTE } from "./components/LibraryBrowser";
 import { logger } from "./utils/logger";
 
 declare const SteamClient: {
@@ -33,6 +34,7 @@ export default definePlugin(() => {
   routerHook.addRoute(SPIN_WHEEL_ROUTE, () => <SpinWheelPage />);
   routerHook.addRoute(VERSUS_ROUTE, () => <VersusPageWrapper />);
   routerHook.addRoute(SIMILAR_TO_ROUTE, () => <SimilarToPageWrapper />);
+  routerHook.addRoute(LIBRARY_BROWSER_ROUTE, LibraryBrowserPage);
 
   try {
     const registration = SteamClient.GameSessions.RegisterForAppLifetimeNotifications((data) => {
@@ -68,6 +70,7 @@ export default definePlugin(() => {
       routerHook.removeRoute(SPIN_WHEEL_ROUTE);
       routerHook.removeRoute(VERSUS_ROUTE);
       routerHook.removeRoute(SIMILAR_TO_ROUTE);
+      routerHook.removeRoute(LIBRARY_BROWSER_ROUTE);
     },
   };
 });
