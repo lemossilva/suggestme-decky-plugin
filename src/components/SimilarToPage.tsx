@@ -8,6 +8,7 @@ import { useExcludedGames } from "../hooks/useExcludedGames";
 import { navigateToHistory } from "./HistoryModal";
 import { GameMetadataRow } from "../utils/gameMetadata";
 import { logger } from "../utils/logger";
+import { GameImage } from "../utils/GameImage";
 
 export const SIMILAR_TO_ROUTE = "/suggestme/similar-to";
 
@@ -171,9 +172,6 @@ export function SimilarToPage() {
     };
 
     const suggestedGame = suggestion?.game;
-    const suggestedEffectiveAppId = suggestedGame
-        ? (suggestedGame.is_non_steam && suggestedGame.matched_appid ? suggestedGame.matched_appid : suggestedGame.appid)
-        : 0;
     const gameInPlayNext = suggestedGame ? isInPlayNext(suggestedGame.appid) : false;
 
     return (
@@ -256,36 +254,36 @@ export function SimilarToPage() {
 
                     {hasReferences && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            {referenceGames.map(refGame => {
-                                const refAppId = refGame.is_non_steam && refGame.matched_appid ? refGame.matched_appid : refGame.appid;
-                                return (
-                                    <Focusable
-                                        key={refGame.appid}
-                                        onActivate={() => handleRemoveReference(refGame.appid)}
-                                        style={{
-                                            display: "flex", alignItems: "center", gap: 8,
-                                            padding: "4px 8px",
-                                            backgroundColor: "#4488aa22",
-                                            borderRadius: 6,
-                                            border: "2px solid #4488aa44",
-                                            cursor: "pointer",
-                                        }}
-                                        onFocus={(e: any) => (e.currentTarget.style.borderColor = "white")}
-                                        onBlur={(e: any) => (e.currentTarget.style.borderColor = "#4488aa44")}
-                                    >
-                                        <img
-                                            src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${refAppId}/capsule_184x69.jpg`}
-                                            alt=""
-                                            style={{ width: 40, height: 15, borderRadius: 2, objectFit: "cover", flexShrink: 0 }}
-                                            onError={(e: any) => (e.target.style.display = "none")}
-                                        />
-                                        <div style={{ flex: 1, minWidth: 0, fontSize: 10, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            {refGame.name}
-                                        </div>
-                                        <span style={{ fontSize: 8, color: "#ff6666", flexShrink: 0 }}>✕</span>
-                                    </Focusable>
-                                );
-                            })}
+                            {referenceGames.map(refGame => (
+                                <Focusable
+                                    key={refGame.appid}
+                                    onActivate={() => handleRemoveReference(refGame.appid)}
+                                    style={{
+                                        display: "flex", alignItems: "center", gap: 8,
+                                        padding: "4px 8px",
+                                        backgroundColor: "#4488aa22",
+                                        borderRadius: 6,
+                                        border: "2px solid #4488aa44",
+                                        cursor: "pointer",
+                                    }}
+                                    onFocus={(e: any) => (e.currentTarget.style.borderColor = "white")}
+                                    onBlur={(e: any) => (e.currentTarget.style.borderColor = "#4488aa44")}
+                                >
+                                    <GameImage
+                                        appid={refGame.appid}
+                                        isNonSteam={refGame.is_non_steam}
+                                        matchedAppid={refGame.matched_appid}
+                                        aspect="landscape"
+                                        style={{ width: 40, height: 15, borderRadius: 2, objectFit: "cover", flexShrink: 0 }}
+                                        showPlaceholder={true}
+                                        placeholderIcon={refGame.is_non_steam ? "gamepad" : "steam"}
+                                    />
+                                    <div style={{ flex: 1, minWidth: 0, fontSize: 10, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                        {refGame.name}
+                                    </div>
+                                    <span style={{ fontSize: 8, color: "#ff6666", flexShrink: 0 }}>✕</span>
+                                </Focusable>
+                            ))}
                             {referenceGames.length > 1 && (
                                 <div style={{ fontSize: 9, color: "#aa8844", fontStyle: "italic", padding: "2px 4px" }}>
                                     Results will match elements common to all selected games.
@@ -357,60 +355,57 @@ export function SimilarToPage() {
                                     </span>
                                 )}
                             </div>
-                            {filtered.map(game => {
-                                const effectiveAppId = game.is_non_steam && game.matched_appid
-                                    ? game.matched_appid : game.appid;
-                                const capsuleUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/capsule_184x69.jpg`;
-
-                                return (
-                                    <Focusable
-                                        key={game.appid}
-                                        onActivate={() => handleAddReference(game)}
-                                        style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: 8,
-                                            padding: "6px 8px",
-                                            backgroundColor: "#ffffff08",
-                                            borderRadius: 6,
-                                            cursor: "pointer",
-                                            border: "2px solid transparent",
-                                        }}
-                                        onFocus={(e: any) => {
-                                            e.currentTarget.style.borderColor = "#4488aa";
-                                            e.currentTarget.style.backgroundColor = "#4488aa33";
-                                        }}
-                                        onBlur={(e: any) => {
-                                            e.currentTarget.style.borderColor = "transparent";
-                                            e.currentTarget.style.backgroundColor = "#ffffff08";
-                                        }}
-                                    >
-                                        <img
-                                            src={capsuleUrl}
-                                            alt=""
-                                            style={{ width: 50, height: 18, borderRadius: 2, objectFit: "cover", flexShrink: 0 }}
-                                            onError={(e: any) => (e.target.style.display = "none")}
-                                        />
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{
-                                                fontSize: 11, color: "#fff",
-                                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                                            }}>
-                                                {game.name}
-                                            </div>
-                                            <div style={{ display: "flex", gap: 6, fontSize: 9, color: "#666", marginTop: 1 }}>
-                                                {game.genres.slice(0, 2).map(g => (
-                                                    <span key={g} style={{ backgroundColor: "#ffffff11", padding: "0 3px", borderRadius: 2 }}>{g}</span>
-                                                ))}
-                                            </div>
+                            {filtered.map(game => (
+                                <Focusable
+                                    key={game.appid}
+                                    onActivate={() => handleAddReference(game)}
+                                    style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                        padding: "6px 8px",
+                                        backgroundColor: "#ffffff08",
+                                        borderRadius: 6,
+                                        cursor: "pointer",
+                                        border: "2px solid transparent",
+                                    }}
+                                    onFocus={(e: any) => {
+                                        e.currentTarget.style.borderColor = "#4488aa";
+                                        e.currentTarget.style.backgroundColor = "#4488aa33";
+                                    }}
+                                    onBlur={(e: any) => {
+                                        e.currentTarget.style.borderColor = "transparent";
+                                        e.currentTarget.style.backgroundColor = "#ffffff08";
+                                    }}
+                                >
+                                    <GameImage
+                                        appid={game.appid}
+                                        isNonSteam={game.is_non_steam}
+                                        matchedAppid={game.matched_appid}
+                                        aspect="landscape"
+                                        style={{ width: 50, height: 18, borderRadius: 2, objectFit: "cover", flexShrink: 0 }}
+                                        showPlaceholder={true}
+                                        placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
+                                    />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{
+                                            fontSize: 11, color: "#fff",
+                                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                        }}>
+                                            {game.name}
                                         </div>
-                                        <span style={{ fontSize: 9, color: "#666", flexShrink: 0 }}>
-                                            <FaGamepad style={{ marginRight: 2 }} />
-                                            {formatPlaytime(game.playtime_forever)}
-                                        </span>
-                                    </Focusable>
-                                );
-                            })}
+                                        <div style={{ display: "flex", gap: 6, fontSize: 9, color: "#666", marginTop: 1 }}>
+                                            {game.genres.slice(0, 2).map(g => (
+                                                <span key={g} style={{ backgroundColor: "#ffffff11", padding: "0 3px", borderRadius: 2 }}>{g}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <span style={{ fontSize: 9, color: "#666", flexShrink: 0 }}>
+                                        <FaGamepad style={{ marginRight: 2 }} />
+                                        {formatPlaytime(game.playtime_forever)}
+                                    </span>
+                                </Focusable>
+                            ))}
                         </div>
                     )}
 
@@ -437,10 +432,25 @@ export function SimilarToPage() {
                                 position: "relative",
                                 width: "100%",
                                 aspectRatio: "460 / 215",
-                                backgroundImage: `url(https://steamcdn-a.akamaihd.net/steam/apps/${suggestedEffectiveAppId}/header.jpg)`,
                                 backgroundSize: "cover",
                                 backgroundPosition: "center",
                             }}>
+                                <GameImage
+                                    appid={suggestedGame.appid}
+                                    isNonSteam={suggestedGame.is_non_steam}
+                                    matchedAppid={suggestedGame.matched_appid}
+                                    aspect="landscape"
+                                    style={{
+                                        position: "absolute",
+                                        top: 0,
+                                        left: 0,
+                                        width: "100%",
+                                        height: "100%",
+                                        objectFit: "cover",
+                                    }}
+                                    showPlaceholder={true}
+                                    placeholderIcon={suggestedGame.is_non_steam ? "gamepad" : "steam"}
+                                />
                                 <div style={{
                                     position: "absolute",
                                     top: 0, left: 0, right: 0, bottom: 0,

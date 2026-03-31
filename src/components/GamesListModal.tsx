@@ -5,14 +5,15 @@ import {
     PanelSectionRow,
     Navigation,
     ConfirmModal,
-    showModal,
 } from "@decky/ui";
 import { FaArrowLeft, FaSteam, FaGamepad, FaCheck, FaTimes, FaClock, FaTag, FaStar, FaListUl, FaBan, FaFilter } from "react-icons/fa";
-import { Game } from "../types";
+import { Game, SuggestFilters } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { GameMetadataRow } from "../utils/gameMetadata";
 import { getSizeOnDisk, getPurchaseDate } from "../hooks/useSuggestion";
+import { getFilterSummary } from "../utils/filterUtils";
+import { openModalWithQAMReturn } from "../utils/navigation";
 
 export type FilterCategory =
     | "enrichment"
@@ -40,6 +41,8 @@ export interface GamesListModalProps {
     includeUnmatched?: boolean;
     onIncludeNonSteamChange?: (val: boolean) => void;
     onIncludeUnmatchedChange?: (val: boolean) => void;
+    showTopSpacer?: boolean;
+    filters?: SuggestFilters;
 }
 
 const getGameIconUrl = (game: Game): string | null => {
@@ -124,6 +127,8 @@ export function GamesListModal({
     includeUnmatched,
     onIncludeNonSteamChange,
     onIncludeUnmatchedChange,
+    showTopSpacer = false,
+    filters,
 }: GamesListModalProps) {
     const [sortBy, setSortBy] = useState<"name" | "playtime" | "recent">("name");
     const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
@@ -135,13 +140,16 @@ export function GamesListModal({
     const { excludeGame, isExcluded } = useExcludedGames();
 
     useEffect(() => {
+        // Only auto-focus back button when NOT showing top spacer
+        // (top spacer handles initial focus via invisible element)
+        if (showTopSpacer) return;
         const timer = setTimeout(() => {
             if (backButtonRef.current) {
                 backButtonRef.current.focus();
             }
         }, 100);
         return () => clearTimeout(timer);
-    }, []);
+    }, [showTopSpacer]);
 
     const baseFilteredGames = showNonSteamToggles
         ? games
@@ -192,7 +200,7 @@ export function GamesListModal({
     };
 
     const handleMassAddToPlayNext = () => {
-        showModal(
+        openModalWithQAMReturn(
             <ConfirmModal
                 strTitle="Add All to Play Next"
                 strDescription={`Add ${sortedGames.length} games to your Play Next list?`}
@@ -210,7 +218,7 @@ export function GamesListModal({
     };
 
     const handleMassExclude = () => {
-        showModal(
+        openModalWithQAMReturn(
             <ConfirmModal
                 strTitle="Exclude All Games"
                 strDescription={`Exclude ${sortedGames.length} games from suggestions? This cannot be easily undone.`}
@@ -252,6 +260,17 @@ export function GamesListModal({
 
     return (
         <div style={{ padding: "16px 16px 80px 16px", maxHeight: "calc(100vh - 60px)", overflowY: "auto" }}>
+            {showTopSpacer && (
+                <>
+                    <Focusable
+                        onActivate={() => {}}
+                        onFocus={(e: any) => (e.target.style.borderColor = "transparent")}
+                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                        style={{ height: 0, width: 0, overflow: "hidden" }}
+                    >{null}</Focusable>
+                    <div style={{ height: 80 }} />
+                </>
+            )}
             <PanelSection>
                 <PanelSectionRow>
                     <Focusable
@@ -335,6 +354,23 @@ export function GamesListModal({
                             {sortedGames.length} game{sortedGames.length !== 1 ? "s" : ""}
                             {quickFilter !== "all" && ` (filtered from ${baseFilteredGames.length})`}
                         </div>
+                        {filters && (
+                            <div style={{ 
+                                marginTop: 8, 
+                                padding: "8px 10px", 
+                                backgroundColor: "#ffffff08", 
+                                borderRadius: 6,
+                                maxHeight: 200,
+                                overflowY: "auto"
+                            }}>
+                                <div style={{ fontSize: 10, color: "#666", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                                    <FaFilter size={8} /> Applied Filters
+                                </div>
+                                <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.6 }}>
+                                    {getFilterSummary(filters)}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </PanelSectionRow>
 

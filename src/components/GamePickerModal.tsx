@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { ConfirmModal, Focusable, TextField, showModal } from "@decky/ui";
+import { ConfirmModal, Focusable, TextField } from "@decky/ui";
 import { call } from "@decky/api";
 import { FaGamepad, FaStar, FaSearch } from "react-icons/fa";
 import { Game } from "../types";
 import { logger } from "../utils/logger";
+import { openModalWithQAMReturn } from "../utils/navigation";
 
 interface GamePickerContentProps {
     onSelect: (game: Game) => void;
@@ -197,5 +198,5 @@ export function showGamePickerModal(
     _totalGames: number,
     onSelect: (game: Game) => void
 ) {
-    showModal(<GamePickerContent onSelect={onSelect} />);
+    openModalWithQAMReturn(<GamePickerContent onSelect={onSelect} />);
 }

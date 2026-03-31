@@ -8,14 +8,15 @@ import {
     SliderField,
     TextField,
     ToggleField,
-    showModal,
 } from "@decky/ui";
 import { routerHook } from "@decky/api";
 import { useState } from "react";
-import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash, FaStar, FaHdd, FaCopy, FaExclamationTriangle, FaSlidersH } from "react-icons/fa";
+import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash, FaStar, FaHdd, FaCopy, FaExclamationTriangle, FaSlidersH, FaEye } from "react-icons/fa";
 import { SuggestFilters, DEFAULT_FILTERS } from "../types";
 import { useFilterPresets } from "../hooks/useFilterPresets";
 import { DatePicker } from "./DatePicker";
+import { navigateToFilterPool } from "./LibraryBrowser";
+import { openModalWithQAMReturn } from "../utils/navigation";
 
 const normalizeFilters = (filters: SuggestFilters): SuggestFilters => ({
     ...DEFAULT_FILTERS,
@@ -61,7 +62,7 @@ function PresetLabelModalContent({ currentLabel, onSave, closeModal }: PresetLab
 }
 
 function showPresetLabelModal(currentLabel: string, onSave: (label: string) => void) {
-    showModal(<PresetLabelModalContent currentLabel={currentLabel} onSave={onSave} />);
+    openModalWithQAMReturn(<PresetLabelModalContent currentLabel={currentLabel} onSave={onSave} />);
 }
 
 interface SearchModalProps {
@@ -128,7 +129,7 @@ function SearchModalContent({ title, onSearch, availableItems = [], closeModal }
 }
 
 function showSearchModal(title: string, onSearch: (query: string) => void, availableItems?: string[]) {
-    showModal(<SearchModalContent title={title} onSearch={onSearch} availableItems={availableItems} />);
+    openModalWithQAMReturn(<SearchModalContent title={title} onSearch={onSearch} availableItems={availableItems} />);
 }
 
 export const FILTERS_ROUTE = '/suggestme/filters';
@@ -1406,6 +1407,13 @@ export const FiltersPage = () => {
         setTimeout(() => setResetFeedback(false), 1500);
     };
 
+    const handlePreviewPool = () => {
+        navigateToFilterPool(
+            normalizeFilters(localFilters),
+            () => navigateToFilters(props)
+        );
+    };
+
     const getSourceCount = () => {
         let count = 0;
         if (localFilters.non_steam_only) count++;
@@ -1547,11 +1555,31 @@ export const FiltersPage = () => {
                     )}
                 </Focusable>
                 <Focusable
+                    onActivate={handlePreviewPool}
+                    onClick={handlePreviewPool}
+                    style={{
+                        flex: 1,
+                        padding: '4px 12px',
+                        backgroundColor: '#88aa4422',
+                        borderRadius: 6,
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        border: '2px solid transparent',
+                        fontSize: 12,
+                        color: '#88aa44'
+                    }}
+                    onFocus={(e: any) => e.target.style.borderColor = 'white'}
+                    onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
+                >
+                    <FaEye size={10} style={{ marginRight: 4 }} />
+                    Preview
+                </Focusable>
+                <Focusable
                     onActivate={handleSave}
                     onClick={handleSave}
                     style={{
-                        flex: 3.155,
-                        padding: '4px 0px',
+                        flex: 1,
+                        padding: '4px 12px',
                         backgroundColor: '#4488aa',
                         borderRadius: 6,
                         textAlign: 'center',
@@ -1583,72 +1611,4 @@ export function navigateToFilters(props: FiltersModalProps) {
     currentFiltersProps = props;
     Navigation.CloseSideMenus();
     Navigation.Navigate(FILTERS_ROUTE);
-}
-
-export function getFilterSummary(filters: SuggestFilters): string {
-    const parts: string[] = [];
-    
-    if (filters.non_steam_only) parts.push('Non-Steam only');
-    if (filters.exclude_non_steam) parts.push('Steam only');
-    if (filters.include_unplayed && filters.max_playtime === 0) {
-        parts.push('Not played yet');
-    } else {
-        if (!filters.include_unplayed) parts.push('No unplayed');
-        if (filters.max_playtime !== undefined && filters.max_playtime > 0) parts.push(`<${Math.round(filters.max_playtime / 60)}h`);
-    }
-    if (filters.installed_only) parts.push('Installed');
-    if (filters.not_installed_only) parts.push('Not installed');
-    if (filters.min_playtime) parts.push(`>${Math.round(filters.min_playtime / 60)}h`);
-    if (filters.include_genres?.length) parts.push(`${filters.include_genres.length} genres`);
-    if (filters.exclude_genres?.length) parts.push(`-${filters.exclude_genres.length} genres`);
-    if (filters.include_tags?.length) parts.push(`${filters.include_tags.length} features`);
-    if (filters.exclude_tags?.length) parts.push(`-${filters.exclude_tags.length} features`);
-    if (filters.include_community_tags?.length) parts.push(`${filters.include_community_tags.length} community tags`);
-    if (filters.exclude_community_tags?.length) parts.push(`-${filters.exclude_community_tags.length} community tags`);
-    if (filters.deck_status?.length) parts.push(`${filters.deck_status.length} deck status`);
-    if (filters.protondb_tier?.length) parts.push(`${filters.protondb_tier.length} ProtonDB`);
-    if (filters.include_collections?.length) parts.push(`${filters.include_collections.length} collections`);
-    if (filters.exclude_collections?.length) parts.push(`-${filters.exclude_collections.length} collections`);
-    if (filters.min_steam_review_score) parts.push(`Steam ≥${STEAM_REVIEW_SCORE_LABELS[filters.min_steam_review_score] || filters.min_steam_review_score}`);
-    if (filters.min_metacritic_score) parts.push(`Meta ≥${filters.min_metacritic_score}`);
-    if (!filters.include_games_without_reviews) parts.push('Reviews required');
-    if (filters.release_date_after !== undefined || filters.release_date_before !== undefined) parts.push('Release date');
-    if (filters.purchase_date_after !== undefined || filters.purchase_date_before !== undefined) parts.push('Purchase date');
-    if (filters.title_regex) parts.push('Title regex');
-    if (filters.min_size_mb !== undefined || filters.max_size_mb !== undefined) parts.push('Size');
-    
-    return parts.length > 0 ? parts.join(' • ') : 'No filters';
-}
-
-export function hasActiveFilters(filters: SuggestFilters): boolean {
-    return (
-        filters.non_steam_only ||
-        filters.exclude_non_steam ||
-        !filters.include_unplayed ||
-        (filters.include_unplayed && filters.max_playtime === 0) ||
-        filters.installed_only ||
-        filters.not_installed_only ||
-        filters.min_playtime !== undefined ||
-        (filters.max_playtime !== undefined && filters.max_playtime > 0) ||
-        (filters.include_genres?.length || 0) > 0 ||
-        (filters.exclude_genres?.length || 0) > 0 ||
-        (filters.include_tags?.length || 0) > 0 ||
-        (filters.exclude_tags?.length || 0) > 0 ||
-        (filters.include_community_tags?.length || 0) > 0 ||
-        (filters.exclude_community_tags?.length || 0) > 0 ||
-        (filters.deck_status?.length || 0) > 0 ||
-        (filters.protondb_tier?.length || 0) > 0 ||
-        (filters.include_collections?.length || 0) > 0 ||
-        (filters.exclude_collections?.length || 0) > 0 ||
-        filters.min_steam_review_score !== undefined ||
-        filters.min_metacritic_score !== undefined ||
-        !filters.include_games_without_reviews ||
-        filters.release_date_after !== undefined ||
-        filters.release_date_before !== undefined ||
-        filters.purchase_date_after !== undefined ||
-        filters.purchase_date_before !== undefined ||
-        !!filters.title_regex ||
-        filters.min_size_mb !== undefined ||
-        filters.max_size_mb !== undefined
-    );
 }

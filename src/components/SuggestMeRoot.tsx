@@ -31,7 +31,8 @@ import { useExcludedGames } from "../hooks/useExcludedGames";
 import { useFilterPresets } from "../hooks/useFilterPresets";
 import { SuggestionCard } from "./SuggestionCard";
 import { navigateToSettings } from "./SettingsModal";
-import { navigateToFilters, getFilterSummary, hasActiveFilters } from "./FiltersModal";
+import { navigateToFilters } from "./FiltersModal";
+import { getFilterSummary, hasActiveFilters } from "../utils/filterUtils";
 import { navigateToNonSteamGames } from "./NonSteamGamesModal";
 import { navigateToPlayNext } from "./PlayNextModal";
 import { navigateToHistory } from "./HistoryModal";
@@ -50,6 +51,7 @@ import {
   SuggestionResult,
   filtersEqual,
 } from "../types";
+import { GameImage } from "../utils/GameImage";
 
 type TabId = SuggestMode;
 
@@ -1157,11 +1159,14 @@ export function SuggestMeRoot() {
                       onFocus={(e: any) => e.target.style.borderColor = 'white'}
                       onBlur={(e: any) => e.target.style.borderColor = 'transparent'}
                     >
-                      <img
-                        src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${entry.is_non_steam && entry.matched_appid ? entry.matched_appid : entry.appid}/capsule_184x69.jpg`}
-                        alt=""
+                      <GameImage
+                        appid={entry.appid}
+                        isNonSteam={entry.is_non_steam}
+                        matchedAppid={entry.matched_appid}
+                        aspect="landscape"
                         style={{ width: 46, height: 17, borderRadius: 2, objectFit: 'cover' }}
-                        onError={(e: any) => e.target.style.display = 'none'}
+                        showPlaceholder={true}
+                        placeholderIcon={entry.is_non_steam ? "gamepad" : "steam"}
                       />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

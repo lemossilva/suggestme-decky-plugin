@@ -12,6 +12,7 @@ import { FaBan, FaTrash, FaSync, FaChevronRight, FaCheck } from "react-icons/fa"
 import { ExcludedGame } from "../types";
 import { logger } from "../utils/logger";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
+import { GameImage } from "../utils/GameImage";
 
 export const EXCLUDED_GAMES_ROUTE = '/suggestme/excluded';
 
@@ -25,7 +26,6 @@ const GameItem = ({
     isRemoving: boolean;
 }) => {
     const [focused, setFocused] = useState(false);
-    const imageAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
 
     return (
         <Focusable
@@ -57,11 +57,14 @@ const GameItem = ({
                     minWidth: 0
                 }}
             >
-                <img
-                    src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${imageAppId}/capsule_184x69.jpg`}
-                    alt=""
+                <GameImage
+                    appid={game.appid}
+                    isNonSteam={game.is_non_steam}
+                    matchedAppid={game.matched_appid}
+                    aspect="landscape"
                     style={{ width: 46, height: 17, borderRadius: 2, objectFit: 'cover' }}
-                    onError={(e: any) => e.target.style.display = 'none'}
+                    showPlaceholder={true}
+                    placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ 

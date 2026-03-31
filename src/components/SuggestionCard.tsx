@@ -1,6 +1,7 @@
 import { ButtonItem, PanelSectionRow, Focusable } from "@decky/ui";
 import { FaExternalLinkAlt, FaDice, FaGamepad, FaTimes, FaStar, FaStore, FaCalendarAlt } from "react-icons/fa";
 import { Game, SuggestMode, MODE_LABELS } from "../types";
+import { GameImage } from "../utils/GameImage";
 
 interface SuggestionCardProps {
   game: Game;
@@ -53,9 +54,6 @@ export function SuggestionCard({
     return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  const effectiveAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
-  const headerUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${effectiveAppId}/header.jpg`;
-
   return (
     <Focusable
       style={{
@@ -65,15 +63,20 @@ export function SuggestionCard({
         marginBottom: "0px",
       }}
     >
-      <img
-        src={headerUrl}
-        alt={game.name}
+      <GameImage
+        appid={game.appid}
+        isNonSteam={game.is_non_steam}
+        matchedAppid={game.matched_appid}
+        aspect="landscape"
         style={{
           width: "100%",
           height: "auto",
           display: "block",
           borderRadius: "8px 8px 0 0",
+          aspectRatio: "460 / 215",
+          objectFit: "cover",
         }}
+        placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
       />
 
       <div style={{ padding: "12px" }}>

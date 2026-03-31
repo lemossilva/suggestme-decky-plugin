@@ -10,9 +10,10 @@ import { FaTrash, FaChevronRight, FaHistory, FaStore, FaFilter, FaListUl, FaBan,
 import { HistoryEntry, SuggestMode, MODE_LABELS, SuggestFilters, filtersEqual, Game } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
-import { hasActiveFilters } from "./FiltersModal";
+import { hasActiveFilters } from "../utils/filterUtils";
 import { logger } from "../utils/logger";
 import { ReleaseDateOnly } from "../utils/gameMetadata";
+import { GameImage } from "../utils/GameImage";
 
 export const HISTORY_ROUTE = '/suggestme/history';
 
@@ -151,30 +152,20 @@ const HistoryItem = ({
                     borderRadius: '6px 0 0 6px',
                 }}
             >
-                <img
-                    src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/capsule_184x69.jpg`}
-                    alt=""
+                <GameImage
+                    appid={entry.appid}
+                    isNonSteam={entry.is_non_steam}
+                    matchedAppid={entry.matched_appid}
+                    aspect="landscape"
                     style={{
                         width: 40,
                         height: 15,
                         borderRadius: 2,
                         objectFit: 'cover',
                         flexShrink: 0,
-                        backgroundColor: '#333'
                     }}
-                    onError={(e: any) => {
-                        // Try library portrait image as fallback
-                        const target = e.target;
-                        if (!target.dataset.triedFallback) {
-                            target.dataset.triedFallback = 'true';
-                            target.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/library_600x900.jpg`;
-                            target.style.width = '30px';
-                            target.style.height = '40px';
-                            target.style.objectFit = 'cover';
-                        } else {
-                            target.style.display = 'none';
-                        }
-                    }}
+                    showPlaceholder={true}
+                    placeholderIcon={entry.is_non_steam ? "gamepad" : "steam"}
                 />
                 <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                     <div style={{

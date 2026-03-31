@@ -8,6 +8,7 @@ import { useExcludedGames } from "../hooks/useExcludedGames";
 import { navigateToHistory } from "./HistoryModal";
 import { GameMetadataRow } from "../utils/gameMetadata";
 import { logger } from "../utils/logger";
+import { GameImage } from "../utils/GameImage";
 
 export const VERSUS_ROUTE = "/suggestme/versus";
 
@@ -71,9 +72,6 @@ interface GameCardProps {
 }
 
 function GameCard({ game, label, labelColor, onPick, disabled }: GameCardProps) {
-    const effectiveAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
-    const headerUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${effectiveAppId}/header.jpg`;
-
     return (
         <Focusable
             onActivate={disabled ? undefined : onPick}
@@ -96,10 +94,20 @@ function GameCard({ game, label, labelColor, onPick, disabled }: GameCardProps) 
                 position: "relative",
                 width: "100%",
                 aspectRatio: "460 / 215",
-                backgroundImage: `url(${headerUrl})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
             }}>
+                <GameImage
+                    appid={game.appid}
+                    isNonSteam={game.is_non_steam}
+                    matchedAppid={game.matched_appid}
+                    aspect="landscape"
+                    style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                    }}
+                    showPlaceholder={true}
+                    placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
+                />
                 <div style={{
                     position: "absolute",
                     top: 8,
@@ -392,11 +400,6 @@ export function VersusPage() {
         loadInitialPair();
     };
 
-    const effectiveAppId = champion
-        ? (champion.is_non_steam && champion.matched_appid ? champion.matched_appid : champion.appid)
-        : 0;
-    const winnerHeaderUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${effectiveAppId}/header.jpg`;
-
     return (
         <div style={{
             width: "100%",
@@ -634,11 +637,21 @@ export function VersusPage() {
                             position: "relative",
                             width: "100%",
                             aspectRatio: "460 / 215",
-                            backgroundImage: `url(${winnerHeaderUrl})`,
-                            backgroundSize: "cover",
-                            backgroundPosition: "center",
                             flexShrink: 0,
                         }}>
+                            <GameImage
+                                appid={champion.appid}
+                                isNonSteam={champion.is_non_steam}
+                                matchedAppid={champion.matched_appid}
+                                aspect="landscape"
+                                style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover",
+                                }}
+                                showPlaceholder={true}
+                                placeholderIcon={champion.is_non_steam ? "gamepad" : "steam"}
+                            />
                             <div style={{
                                 position: "absolute",
                                 top: 0, left: 0, right: 0, bottom: 0,

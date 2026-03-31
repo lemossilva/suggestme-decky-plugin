@@ -1979,6 +1979,9 @@ class Plugin:
                 game_release = release_date_map.get(game.appid)
                 if game_release is None and game.is_non_steam and game.matched_appid:
                     game_release = release_date_map.get(game.matched_appid)
+                # Fallback to cached release_date from library_cache
+                if game_release is None:
+                    game_release = game.release_date
                 if game_release is None:
                     if not include_unknown_release_date:
                         continue

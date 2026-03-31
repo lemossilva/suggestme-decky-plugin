@@ -11,6 +11,7 @@ import { navigateToHistory } from "./HistoryModal";
 import { getBannerColorsForGames } from "../utils/bannerColors";
 import { GameMetadataRow } from "../utils/gameMetadata";
 import { logger } from "../utils/logger";
+import { GameImage } from "../utils/GameImage";
 
 export const SPIN_WHEEL_ROUTE = "/suggestme/spin-wheel";
 
@@ -613,15 +614,12 @@ export function SpinWheelPage() {
                     {/* Right: large game card with buttons below */}
                     {(() => {
                         const game = payload.winner;
-                        const effectiveAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
-                        const headerUrl = `https://steamcdn-a.akamaihd.net/steam/apps/${effectiveAppId}/header.jpg`;
                         return (
                             <div style={{
                                 display: "flex", flexDirection: "column", gap: s(10),
                                 background: "#1a1f2e", borderRadius: s(10), padding: s(12),
                                 overflow: "hidden", 
                                 width: "100%", 
-                                // TWEAK CARD SIZE
                                 maxWidth: s(480), 
                                 marginLeft: "auto",
                             }}>
@@ -629,10 +627,23 @@ export function SpinWheelPage() {
                                 <div style={{
                                     width: "100%",
                                     aspectRatio: "460 / 215",
-                                    backgroundImage: `url(${headerUrl})`,
-                                    backgroundSize: "cover", backgroundPosition: "center",
                                     borderRadius: s(8),
-                                }} />
+                                    overflow: "hidden",
+                                }}>
+                                    <GameImage
+                                        appid={game.appid}
+                                        isNonSteam={game.is_non_steam}
+                                        matchedAppid={game.matched_appid}
+                                        aspect="landscape"
+                                        style={{
+                                            width: "100%",
+                                            height: "100%",
+                                            objectFit: "cover",
+                                        }}
+                                        showPlaceholder={true}
+                                        placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
+                                    />
+                                </div>
 
                                 {/* Game info row */}
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: s(12) }}>
