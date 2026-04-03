@@ -274,7 +274,7 @@ export function SimilarToPage() {
                                         isNonSteam={refGame.is_non_steam}
                                         matchedAppid={refGame.matched_appid}
                                         aspect="landscape"
-                                        style={{ width: 40, height: 15, borderRadius: 2, objectFit: "cover", flexShrink: 0 }}
+                                        style={{ width: 40, height: 15, borderRadius: 2, flexShrink: 0 }}
                                         showPlaceholder={true}
                                         placeholderIcon={refGame.is_non_steam ? "gamepad" : "steam"}
                                     />
@@ -383,7 +383,7 @@ export function SimilarToPage() {
                                         isNonSteam={game.is_non_steam}
                                         matchedAppid={game.matched_appid}
                                         aspect="landscape"
-                                        style={{ width: 50, height: 18, borderRadius: 2, objectFit: "cover", flexShrink: 0 }}
+                                        style={{ width: 50, height: 18, borderRadius: 2, flexShrink: 0 }}
                                         showPlaceholder={true}
                                         placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
                                     />
@@ -441,12 +441,8 @@ export function SimilarToPage() {
                                     matchedAppid={suggestedGame.matched_appid}
                                     aspect="landscape"
                                     style={{
-                                        position: "absolute",
-                                        top: 0,
-                                        left: 0,
                                         width: "100%",
                                         height: "100%",
-                                        objectFit: "cover",
                                     }}
                                     showPlaceholder={true}
                                     placeholderIcon={suggestedGame.is_non_steam ? "gamepad" : "steam"}

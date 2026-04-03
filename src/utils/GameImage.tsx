@@ -10,6 +10,7 @@ export interface GameImageProps extends GameImageOptions {
   placeholderIcon?: 'steam' | 'gamepad';
   placeholderBg?: string;
   onError?: () => void;
+  objectFit?: 'cover' | 'contain' | 'fill' | 'none';
 }
 
 export function GameImage({
@@ -19,10 +20,12 @@ export function GameImage({
   imgIconUrl,
   aspect = 'landscape',
   style,
+  className,
   showPlaceholder = true,
   placeholderIcon = 'steam',
   placeholderBg,
   onError,
+  objectFit = 'cover',
 }: GameImageProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -43,6 +46,8 @@ export function GameImage({
       onError?.();
     }
   }, [currentIndex, urls.length, onError]);
+
+
 
   if (failed || urls.length === 0) {
     if (!showPlaceholder) return null;
@@ -70,7 +75,12 @@ export function GameImage({
     <img
       src={urls[currentIndex]}
       alt=""
-      style={style}
+      className={className}
+      style={{
+        ...style,
+        objectFit,
+        objectPosition: "center",
+      }}
       onError={handleError}
     />
   );

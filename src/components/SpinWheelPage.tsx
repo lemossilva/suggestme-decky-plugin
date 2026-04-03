@@ -638,7 +638,6 @@ export function SpinWheelPage() {
                                         style={{
                                             width: "100%",
                                             height: "100%",
-                                            objectFit: "cover",
                                         }}
                                         showPlaceholder={true}
                                         placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}

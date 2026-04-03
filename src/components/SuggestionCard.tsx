@@ -74,7 +74,6 @@ export function SuggestionCard({
           display: "block",
           borderRadius: "8px 8px 0 0",
           aspectRatio: "460 / 215",
-          objectFit: "cover",
         }}
         placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
       />

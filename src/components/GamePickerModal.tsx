@@ -5,6 +5,35 @@ import { FaGamepad, FaStar, FaSearch } from "react-icons/fa";
 import { Game } from "../types";
 import { logger } from "../utils/logger";
 import { openModalWithQAMReturn } from "../utils/navigation";
+import { GameImage } from "../utils/GameImage";
+
+function useContainerScale(containerRef: React.RefObject<HTMLDivElement>) {
+    const [scale, setScale] = useState(1);
+    const measuredRef = useRef(false);
+
+    useEffect(() => {
+        if (measuredRef.current) return undefined;
+        const el = containerRef.current;
+        if (!el) return undefined;
+
+        const measure = () => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 10 && rect.height > 10) {
+                const vmin = Math.min(rect.width, rect.height);
+                setScale(Math.max(1, Math.min(vmin / 500, 3)));
+                measuredRef.current = true;
+            }
+        };
+        measure();
+        if (!measuredRef.current) {
+            const timer = setTimeout(measure, 50);
+            return () => clearTimeout(timer);
+        }
+        return undefined;
+    }, [containerRef]);
+
+    return scale;
+}
 
 interface GamePickerContentProps {
     onSelect: (game: Game) => void;
@@ -17,6 +46,10 @@ function GamePickerContent({ onSelect, closeModal }: GamePickerContentProps) {
     const [loading, setLoading] = useState(true);
     const [focusedAppId, setFocusedAppId] = useState<number | null>(null);
     const mountedRef = useRef(true);
+
+    const containerRef = useRef<HTMLDivElement>(null);
+    const scale = useContainerScale(containerRef);
+    const s = (base: number) => Math.round(base * scale);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -66,9 +99,9 @@ function GamePickerContent({ onSelect, closeModal }: GamePickerContentProps) {
             onOK={() => closeModal?.()}
             onCancel={() => closeModal?.()}
         >
-            <div style={{ minWidth: 400, maxHeight: 500, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <FaSearch size={12} style={{ color: "#888", flexShrink: 0 }} />
+            <div ref={containerRef} style={{ minWidth: 400, maxHeight: 500, display: "flex", flexDirection: "column", gap: s(8) }}>
+                <div style={{ display: "flex", alignItems: "center", gap: s(8) }}>
+                    <FaSearch size={s(12)} style={{ color: "#888", flexShrink: 0 }} />
                     <div style={{ flex: 1 }}>
                         <TextField
                             label=""
@@ -79,7 +112,7 @@ function GamePickerContent({ onSelect, closeModal }: GamePickerContentProps) {
                     </div>
                 </div>
 
-                <div style={{ fontSize: 10, color: "#666" }}>
+                <div style={{ fontSize: s(10), color: "#666" }}>
                     {query.trim()
                         ? `${filtered.length} match${filtered.length !== 1 ? "es" : ""}`
                         : `${allGames.length} games — type to search`
@@ -87,13 +120,13 @@ function GamePickerContent({ onSelect, closeModal }: GamePickerContentProps) {
                 </div>
 
                 {loading && (
-                    <div style={{ padding: 20, textAlign: "center", color: "#888", fontSize: 12 }}>
+                    <div style={{ padding: s(20), textAlign: "center", color: "#888", fontSize: s(12) }}>
                         Loading library...
                     </div>
                 )}
 
                 {!loading && filtered.length === 0 && (
-                    <div style={{ padding: 20, textAlign: "center", color: "#888", fontSize: 12 }}>
+                    <div style={{ padding: s(20), textAlign: "center", color: "#888", fontSize: s(12) }}>
                         {query.trim() ? "No games match your search." : "No games available."}
                     </div>
                 )}
@@ -107,9 +140,6 @@ function GamePickerContent({ onSelect, closeModal }: GamePickerContentProps) {
                         gap: 4,
                     }}>
                         {filtered.map(game => {
-                            const effectiveAppId = game.is_non_steam && game.matched_appid
-                                ? game.matched_appid : game.appid;
-                            const capsuleUrl = `https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/capsule_184x69.jpg`;
                             const isFocused = focusedAppId === game.appid;
 
                             return (
@@ -131,17 +161,19 @@ function GamePickerContent({ onSelect, closeModal }: GamePickerContentProps) {
                                         transition: "background-color 0.1s",
                                     }}
                                 >
-                                    <img
-                                        src={capsuleUrl}
-                                        alt=""
+                                    <GameImage
+                                        appid={game.appid}
+                                        isNonSteam={game.is_non_steam}
+                                        matchedAppid={game.matched_appid}
+                                        aspect="landscape"
                                         style={{
                                             width: 60,
                                             height: 22,
                                             borderRadius: 3,
-                                            objectFit: "cover",
                                             flexShrink: 0,
                                         }}
-                                        onError={(e: any) => (e.target.style.display = "none")}
+                                        showPlaceholder={true}
+                                        placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
                                     />
 
                                     <div style={{ flex: 1, minWidth: 0 }}>

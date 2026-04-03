@@ -28,26 +28,26 @@ export function getGameImageUrls(options: GameImageOptions): string[] {
 
   switch (aspect) {
     case 'landscape':
-      // Capsule images (landscape ~460x215 or ~231x87)
-      urls.push(`${STEAM_CDN}/${appid}/capsule_231x87.jpg`);
-      urls.push(`${STEAM_CDN}/${appid}/capsule_184x69.jpg`);
+      // header.jpg (460×215)
       urls.push(`${STEAM_AKAMAI}/${appid}/header.jpg`);
-      // Library hero (wide banner)
-      urls.push(`${STEAM_CDN}/${appid}/library_hero.jpg`);
+      urls.push(`${STEAM_CDN}/${appid}/header.jpg`);
+      // hero_capsule (616×353)
+      urls.push(`${STEAM_CDN}/${appid}/hero_capsule.jpg`);
+      // Last resort (467×181)
+      urls.push(`${STEAM_CDN}/${appid}/capsule_467x181.jpg`);
       break;
 
     case 'portrait':
-      // Library capsule (portrait ~600x900)
+      // @1x portrait (600×900)
       urls.push(`${STEAM_CDN}/${appid}/library_600x900.jpg`);
+      // @2x portrait (1200×1800)
       urls.push(`${STEAM_CDN}/${appid}/library_600x900_2x.jpg`);
-      // Fallback to landscape capsules (will be cropped)
-      urls.push(`${STEAM_CDN}/${appid}/capsule_231x87.jpg`);
+      // Fallback
+      urls.push(`${STEAM_AKAMAI}/${appid}/header.jpg`);
       break;
 
     case 'square':
-      // Small capsule
       urls.push(`${STEAM_CDN}/${appid}/capsule_sm_120.jpg`);
-      // Icon from img_icon_url
       if (options.imgIconUrl) {
         urls.push(`${STEAM_MEDIA}/${appid}/${options.imgIconUrl}.jpg`);
       }
@@ -75,17 +75,17 @@ export function getGameIconUrl(game: { appid: number; is_non_steam?: boolean; ma
 }
 
 export function getLandscapeUrl(appid: number): string {
-  return `${STEAM_AKAMAI}/${appid}/header.jpg`;
+  return `${STEAM_CDN}/${appid}/hero_capsule.jpg`;
 }
 
 export function getCapsuleUrl(appid: number, size: 'sm' | 'md' | 'lg' = 'md'): string {
   switch (size) {
     case 'sm': return `${STEAM_CDN}/${appid}/capsule_184x69.jpg`;
     case 'md': return `${STEAM_CDN}/${appid}/capsule_231x87.jpg`;
-    case 'lg': return `${STEAM_CDN}/${appid}/capsule_616x353.jpg`;
+    case 'lg': return `${STEAM_CDN}/${appid}/capsule_467x181.jpg`; 
   }
 }
 
 export function getPortraitUrl(appid: number): string {
-  return `${STEAM_CDN}/${appid}/library_600x900.jpg`;
+  return `${STEAM_CDN}/${appid}/library_600x900_2x.jpg`; 
 }

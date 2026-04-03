@@ -13,6 +13,35 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { FaGamepad, FaCheck, FaSync, FaTrash, FaChevronRight, FaExclamationTriangle, FaLink, FaEdit, FaSave, FaTimes } from "react-icons/fa";
 import { Game, NonSteamGamesInfo } from "../types";
 import { logger } from "../utils/logger";
+import { GameImage } from "../utils/GameImage";
+
+function useContainerScale(containerRef: React.RefObject<HTMLDivElement>) {
+    const [scale, setScale] = useState(1);
+    const measuredRef = useRef(false);
+
+    useEffect(() => {
+        if (measuredRef.current) return undefined;
+        const el = containerRef.current;
+        if (!el) return undefined;
+
+        const measure = () => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 10 && rect.height > 10) {
+                const vmin = Math.min(rect.width, rect.height);
+                setScale(Math.max(1, Math.min(vmin / 500, 3)));
+                measuredRef.current = true;
+            }
+        };
+        measure();
+        if (!measuredRef.current) {
+            const timer = setTimeout(measure, 50);
+            return () => clearTimeout(timer);
+        }
+        return undefined;
+    }, [containerRef]);
+
+    return scale;
+}
 
 export const NON_STEAM_ROUTE = '/suggestme/non-steam';
 
@@ -138,7 +167,7 @@ const GameItem = ({
                     alignItems: 'center',
                     gap: 10,
                     padding: '10px 12px',
-                    backgroundColor: focused ? '#4488aa' : '#ffffff11',
+                    backgroundColor: '#ffffff11',
                     borderRadius: 8,
                     border: focused ? '2px solid white' : '2px solid transparent',
                     cursor: 'pointer',
@@ -146,11 +175,11 @@ const GameItem = ({
                 }}
             >
                 {game.matched_appid && (
-                    <img
-                        src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${game.matched_appid}/capsule_184x69.jpg`}
-                        alt=""
-                        style={{ width: 46, height: 17, borderRadius: 2, objectFit: 'cover' }}
-                        onError={(e: any) => e.target.style.display = 'none'}
+                    <GameImage
+                        appid={game.matched_appid}
+                        aspect="landscape"
+                        style={{ width: 46, height: 17, borderRadius: 2, flexShrink: 0 }}
+                        showPlaceholder={false}
                     />
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -254,6 +283,10 @@ export const NonSteamGamesPage = () => {
     const [progress, setProgress] = useState<NonSteamProgress | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
 
+    const containerRef = useRef<HTMLDivElement>(null);
+    const scale = useContainerScale(containerRef);
+    const s = (base: number) => Math.round(base * scale);
+
     const loadInfo = useCallback(async () => {
         try {
             const result = await call<[], NonSteamGamesInfo>("get_non_steam_games");
@@ -354,19 +387,19 @@ export const NonSteamGamesPage = () => {
     const unmatchedGames = (info?.games.filter(g => g.match_status !== 'matched') || []).sort((a, b) => (a.original_name || a.name).localeCompare(b.original_name || b.name));
 
     return (
-        <div ref={scrollRef} onFocus={(e: any) => (e.target.style.borderColor = "transparent")}
+        <div ref={containerRef} onFocus={(e: any) => (e.target.style.borderColor = "transparent")}
             onBlur={(e: any) => (e.target.style.borderColor = "transparent")} style={{
                 width: '100%',
                 height: '100%',
                 backgroundColor: '#0e141b',
-                padding: '16px 24px 80px 24px',
+                padding: `${s(16)}px ${s(24)}px ${s(80)}px ${s(24)}px`,
                 maxHeight: 'calc(100vh - 60px)',
                 overflowY: 'auto',
                 boxSizing: 'border-box'
             }}>
             <Focusable
                 onActivate={() => { }}
-                style={{ height: 80, width: '100%' }}
+                style={{ height: s(80), width: '100%' }}
             >{null}</Focusable>
             <PanelSection title="Non-Steam Games">
                 <PanelSectionRow>

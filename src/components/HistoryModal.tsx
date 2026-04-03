@@ -161,7 +161,6 @@ const HistoryItem = ({
                         width: 40,
                         height: 15,
                         borderRadius: 2,
-                        objectFit: 'cover',
                         flexShrink: 0,
                     }}
                     showPlaceholder={true}

@@ -14,6 +14,34 @@ import { logger } from "../utils/logger";
 import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { GameImage } from "../utils/GameImage";
 
+function useContainerScale(containerRef: React.RefObject<HTMLDivElement>) {
+    const [scale, setScale] = useState(1);
+    const measuredRef = useRef(false);
+
+    useEffect(() => {
+        if (measuredRef.current) return undefined;
+        const el = containerRef.current;
+        if (!el) return undefined;
+
+        const measure = () => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 10 && rect.height > 10) {
+                const vmin = Math.min(rect.width, rect.height);
+                setScale(Math.max(1, Math.min(vmin / 500, 3)));
+                measuredRef.current = true;
+            }
+        };
+        measure();
+        if (!measuredRef.current) {
+            const timer = setTimeout(measure, 50);
+            return () => clearTimeout(timer);
+        }
+        return undefined;
+    }, [containerRef]);
+
+    return scale;
+}
+
 export const PLAY_NEXT_ROUTE = '/suggestme/play-next';
 
 const GameItem = ({
@@ -79,7 +107,7 @@ const GameItem = ({
                     alignItems: 'center',
                     gap: 10,
                     padding: '10px 12px',
-                    backgroundColor: focused ? '#4488aa' : '#ffffff11',
+                    backgroundColor: '#ffffff11',
                     borderRadius: 8,
                     border: focused ? '2px solid white' : '2px solid transparent',
                     cursor: 'pointer',
@@ -91,7 +119,7 @@ const GameItem = ({
                     isNonSteam={game.is_non_steam}
                     matchedAppid={game.matched_appid}
                     aspect="landscape"
-                    style={{ width: 46, height: 17, borderRadius: 2, objectFit: 'cover' }}
+                    style={{ width: 46, height: 17, borderRadius: 2}}
                     showPlaceholder={true}
                     placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
                 />
@@ -210,6 +238,10 @@ export const PlayNextPage = () => {
     const [clearing, setClearing] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const autoSyncEnabled = config.auto_sync_play_next_collection || false;
+
+    const containerRef = useRef<HTMLDivElement>(null);
+    const scale = useContainerScale(containerRef);
+    const s = (base: number) => Math.round(base * scale);
 
     const loadList = useCallback(async () => {
         try {
@@ -402,23 +434,22 @@ export const PlayNextPage = () => {
     }
 
     return (
-        <div ref={scrollRef} onFocus={(e: any) => (e.target.style.borderColor = "transparent")}
-            onBlur={(e: any) => (e.target.style.borderColor = "transparent")} style={{
-                width: '100%',
-                height: '100%',
-                backgroundColor: '#0e141b',
-                padding: '16px 24px 80px 24px',
-                maxHeight: 'calc(100vh - 60px)',
-                overflowY: 'auto',
-                boxSizing: 'border-box'
-            }}>
+        <div ref={containerRef} style={{
+            width: '100%',
+            height: '100%',
+            backgroundColor: '#0e141b',
+            padding: `${s(16)}px ${s(24)}px ${s(80)}px ${s(24)}px`,
+            maxHeight: 'calc(100vh - 60px)',
+            overflowY: 'auto',
+            boxSizing: 'border-box'
+        }}>
             <Focusable
                 onActivate={() => { }}
-                style={{ height: 80, width: '100%' }}
+                style={{ height: s(80), width: '100%' }}
             >{null}</Focusable>
             <PanelSection title="Play Next">
                 <PanelSectionRow>
-                    <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>
+                    <div style={{ fontSize: s(12), color: '#888', marginBottom: s(8) }}>
                         Games you've queued to play next. Add games from suggestions using the "Play Next" button.
                     </div>
                 </PanelSectionRow>
@@ -428,14 +459,14 @@ export const PlayNextPage = () => {
                         <div style={{ 
                             display: 'flex', 
                             alignItems: 'center', 
-                            gap: 8, 
-                            padding: '10px 12px',
+                            gap: s(8), 
+                            padding: `${s(10)}px ${s(12)}px`,
                             backgroundColor: '#88ff8822',
-                            borderRadius: 6,
-                            fontSize: 12,
+                            borderRadius: s(6),
+                            fontSize: s(12),
                             color: '#88ff88'
                         }}>
-                            <FaCheck size={12} />
+                            <FaCheck size={s(12)} />
                             Auto-sync enabled — changes sync automatically to Steam collection
                         </div>
                     </PanelSectionRow>
@@ -449,12 +480,12 @@ export const PlayNextPage = () => {
                             >
                                 {syncing ? (
                                     <>
-                                        <Spinner style={{ marginRight: 8, width: 14, height: 14 }} />
+                                        <Spinner style={{ marginRight: s(8), width: s(14), height: s(14) }} />
                                         Syncing...
                                     </>
                                 ) : (
                                     <>
-                                        <FaSync style={{ marginRight: 8 }} />
+                                        <FaSync style={{ marginRight: s(8) }} />
                                         Sync to Steam Collection
                                     </>
                                 )}
@@ -462,7 +493,7 @@ export const PlayNextPage = () => {
                         </PanelSectionRow>
 
                         <PanelSectionRow>
-                            <div style={{ fontSize: 11, color: '#666', padding: '4px 0' }}>
+                            <div style={{ fontSize: s(11), color: '#666', padding: `${s(4)}px 0` }}>
                                 Creates a "Play Next" collection in your Steam Library.
                                 Find it at: <span style={{ color: '#8bb9e0' }}>Library → Collections</span>
                             </div>
@@ -478,12 +509,12 @@ export const PlayNextPage = () => {
                     >
                         {clearing ? (
                             <>
-                                <Spinner style={{ marginRight: 8, width: 14, height: 14 }} />
+                                <Spinner style={{ marginRight: s(8), width: s(14), height: s(14) }} />
                                 Clearing...
                             </>
                         ) : (
                             <>
-                                <FaTrash style={{ marginRight: 8 }} />
+                                <FaTrash style={{ marginRight: s(8) }} />
                                 Clear Entire List
                             </>
                         )}

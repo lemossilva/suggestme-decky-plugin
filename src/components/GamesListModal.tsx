@@ -15,6 +15,34 @@ import { getSizeOnDisk, getPurchaseDate } from "../hooks/useSuggestion";
 import { getFilterSummary } from "../utils/filterUtils";
 import { openModalWithQAMReturn } from "../utils/navigation";
 
+function useContainerScale(containerRef: React.RefObject<HTMLDivElement>) {
+    const [scale, setScale] = useState(1);
+    const measuredRef = useRef(false);
+
+    useEffect(() => {
+        if (measuredRef.current) return undefined;
+        const el = containerRef.current;
+        if (!el) return undefined;
+
+        const measure = () => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 10 && rect.height > 10) {
+                const vmin = Math.min(rect.width, rect.height);
+                setScale(Math.max(1, Math.min(vmin / 500, 3)));
+                measuredRef.current = true;
+            }
+        };
+        measure();
+        if (!measuredRef.current) {
+            const timer = setTimeout(measure, 50);
+            return () => clearTimeout(timer);
+        }
+        return undefined;
+    }, [containerRef]);
+
+    return scale;
+}
+
 export type FilterCategory =
     | "enrichment"
     | "genres"
@@ -135,6 +163,10 @@ export function GamesListModal({
     const [justAddedGames, setJustAddedGames] = useState<Set<number>>(new Set());
     const [iconErrors, setIconErrors] = useState<Set<number>>(new Set());
     const backButtonRef = useRef<HTMLDivElement>(null);
+
+    const containerRef = useRef<HTMLDivElement>(null);
+    const scale = useContainerScale(containerRef);
+    const s = (base: number) => Math.round(base * scale);
 
     const { addGame: addToPlayNext, isInList: isInPlayNext, removeGame: removeFromPlayNext } = usePlayNext();
     const { excludeGame, isExcluded } = useExcludedGames();
@@ -259,7 +291,7 @@ export function GamesListModal({
     const nonSteamCount = baseFilteredGames.filter(g => g.is_non_steam).length;
 
     return (
-        <div style={{ padding: "16px 16px 80px 16px", maxHeight: "calc(100vh - 60px)", overflowY: "auto" }}>
+        <div ref={containerRef} style={{ padding: `${s(16)}px ${s(16)}px ${s(80)}px ${s(16)}px`, maxHeight: "calc(100vh - 60px)", overflowY: "auto" }}>
             {showTopSpacer && (
                 <>
                     <Focusable

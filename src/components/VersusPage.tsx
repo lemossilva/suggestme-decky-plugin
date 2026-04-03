@@ -1,18 +1,80 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Focusable, Navigation } from "@decky/ui";
 import { call } from "@decky/api";
-import { FaTrophy, FaArrowLeft, FaExternalLinkAlt, FaGamepad, FaStar, FaStore, FaListUl, FaBan, FaHistory, FaStopCircle, FaRedo, FaUsers, FaTag } from "react-icons/fa";
+import { FaTrophy, FaArrowLeft, FaExternalLinkAlt, FaGamepad, FaStar, FaStore, FaListUl, FaBan, FaHistory, FaStopCircle, FaUsers, FaRedo, FaTag } from "react-icons/fa";
 import { Game, SuggestFilters, VersusRoundPayload } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { navigateToHistory } from "./HistoryModal";
 import { GameMetadataRow } from "../utils/gameMetadata";
+import { getSizeOnDisk, getPurchaseDate } from "../hooks/useSuggestion";
+
+const DECK_STATUS_COLORS: Record<string, string> = {
+    verified: "#88ff88",
+    playable: "#ffcc00",
+    unsupported: "#ff6666",
+    unknown: "#888888",
+};
+
+const PROTONDB_COLORS: Record<string, string> = {
+    platinum: "#b4c7dc",
+    gold: "#cfb53b",
+    silver: "#a8a8a8",
+    bronze: "#cd7f32",
+    borked: "#ff4444",
+    unknown: "#666666",
+};
+
+const getReviewColor = (score: number): string => {
+    if (score >= 9) return "#66ccff";
+    if (score >= 7) return "#88ff88";
+    if (score >= 5) return "#ffcc66";
+    if (score >= 3) return "#ffaa66";
+    return "#ff6666";
+};
+
+const getMetacriticColor = (score: number): string => {
+    if (score >= 90) return "#66cc33";
+    if (score >= 80) return "#88cc44";
+    if (score >= 70) return "#aacc55";
+    if (score >= 60) return "#bbcc66";
+    if (score >= 50) return "#ccbb77";
+    return "#cc6655";
+};
 import { logger } from "../utils/logger";
 import { GameImage } from "../utils/GameImage";
 
 export const VERSUS_ROUTE = "/suggestme/versus";
 
 type VersusPhase = "loading" | "resuming" | "round" | "fetching" | "winner";
+
+function useContainerScale(containerRef: React.RefObject<HTMLDivElement>) {
+    const [scale, setScale] = useState(1);
+    const measuredRef = useRef(false);
+
+    useEffect(() => {
+        if (measuredRef.current) return undefined;
+        const el = containerRef.current;
+        if (!el) return undefined;
+
+        const measure = () => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 10 && rect.height > 10) {
+                const vmin = Math.min(rect.width, rect.height);
+                setScale(Math.max(1, Math.min(vmin / 500, 3)));
+                measuredRef.current = true;
+            }
+        };
+        measure();
+        if (!measuredRef.current) {
+            const timer = setTimeout(measure, 50);
+            return () => clearTimeout(timer);
+        }
+        return undefined;
+    }, [containerRef]);
+
+    return scale;
+}
 
 let cachedFilters: SuggestFilters | null = null;
 let cachedInstalledAppIds: number[] = [];
@@ -69,9 +131,11 @@ interface GameCardProps {
     labelColor: string;
     onPick: () => void;
     disabled: boolean;
+    scale?: (base: number) => number;
 }
 
-function GameCard({ game, label, labelColor, onPick, disabled }: GameCardProps) {
+function GameCard({ game, label, labelColor, onPick, disabled, scale }: GameCardProps) {
+    const s = scale || ((n: number) => n);
     return (
         <Focusable
             onActivate={disabled ? undefined : onPick}
@@ -110,12 +174,12 @@ function GameCard({ game, label, labelColor, onPick, disabled }: GameCardProps) 
                 />
                 <div style={{
                     position: "absolute",
-                    top: 8,
-                    left: 8,
-                    padding: "3px 10px",
+                    top: s(8),
+                    left: s(8),
+                    padding: `${s(3)}px ${s(10)}px`,
                     backgroundColor: labelColor,
-                    borderRadius: 4,
-                    fontSize: 10,
+                    borderRadius: s(4),
+                    fontSize: s(10),
                     fontWeight: 700,
                     color: "#fff",
                     textTransform: "uppercase",
@@ -125,66 +189,129 @@ function GameCard({ game, label, labelColor, onPick, disabled }: GameCardProps) 
                 </div>
             </div>
 
-            <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: "bold", color: "white", lineHeight: 1.2 }}>
+            <div style={{ padding: s(10), display: "flex", flexDirection: "column", gap: s(6), flex: 1 }}>
+                <div style={{ fontSize: s(14), fontWeight: "bold", color: "white", lineHeight: 1.2 }}>
                     {game.name}
                     {game.is_non_steam && (
-                        <span style={{ marginLeft: 6, fontSize: 9, color: "#6688aa", fontWeight: 400 }}>(Non-Steam)</span>
+                        <span style={{ marginLeft: s(6), fontSize: s(9), color: "#6688aa", fontWeight: 400 }}>(Non-Steam)</span>
                     )}
                 </div>
 
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {game.genres.slice(0, 3).map((genre) => (
-                        <span key={genre} style={{
-                            background: "var(--gpColor-Blue)",
-                            color: "white",
-                            padding: "1px 6px",
-                            borderRadius: 3,
-                            fontSize: 9,
-                        }}>
-                            {genre}
-                        </span>
-                    ))}
-                </div>
-
-                <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#aaa" }}>
-                    <span><FaGamepad style={{ marginRight: 3 }} />{formatPlaytime(game.playtime_forever)}</span>
+                {/* Playtime row */}
+                <div style={{ display: "flex", gap: s(12), fontSize: s(10), color: "#aaa" }}>
+                    <span><FaGamepad style={{ marginRight: s(3) }} />{formatPlaytime(game.playtime_forever)}</span>
                     <span>Last: {formatLastPlayed(game.rtime_last_played)}</span>
                 </div>
 
-                {(game.steam_review_description || game.metacritic_score > 0) && (
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 10, color: "#aaa" }}>
-                        {game.steam_review_description && (
-                            <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                <FaStar style={{ color: "#ffcc00" }} />
-                                {game.steam_review_description}
-                            </span>
-                        )}
-                        {game.metacritic_score > 0 && (
-                            <span style={{
-                                background: game.metacritic_score >= 75 ? "#66cc33" : game.metacritic_score >= 50 ? "#ffcc33" : "#ff6666",
-                                color: "#000",
-                                padding: "1px 5px",
-                                borderRadius: 2,
-                                fontWeight: "bold",
-                                fontSize: 9,
+                {/* GameMetadataRow */}
+                <GameMetadataRow game={{
+                    size_on_disk: getSizeOnDisk(game.appid) ?? game.size_on_disk,
+                    rtime_purchased: getPurchaseDate(game.appid) ?? game.rtime_purchased,
+                    release_date: game.release_date
+                }} scale={s} />
+
+                {/* Genres */}
+                {game.genres && game.genres.length > 0 && (
+                    <div style={{ display: "flex", gap: s(4), flexWrap: "wrap" }}>
+                        {game.genres.slice(0, 4).map((genre) => (
+                            <span key={genre} style={{
+                                background: "var(--gpColor-Blue)",
+                                color: "white",
+                                padding: `${s(1)}px ${s(6)}px`,
+                                borderRadius: s(3),
+                                fontSize: s(9),
                             }}>
-                                {game.metacritic_score}
+                                {genre}
                             </span>
+                        ))}
+                        {game.genres.length > 4 && (
+                            <span style={{ fontSize: s(9), color: "#666" }}>+{game.genres.length - 4}</span>
                         )}
                     </div>
                 )}
-            </div>
 
-            <div style={{
-                padding: "6px 10px 10px 10px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-            }}>
-                <FaTrophy size={12} style={{ color: "#fff" }} />
-                <span style={{ fontSize: 12, color: "#fff", fontWeight: 600 }}>Pick This One</span>
+                {/* Community tags */}
+                {game.community_tags && game.community_tags.length > 0 && (
+                    <div style={{ display: "flex", gap: s(4), flexWrap: "wrap" }}>
+                        {game.community_tags.slice(0, 4).map((tag, i) => (
+                            <span key={i} style={{
+                                fontSize: s(9),
+                                padding: `${s(2)}px ${s(6)}px`,
+                                backgroundColor: "#aa886622",
+                                color: "#ddaa77",
+                                borderRadius: s(4),
+                            }}>
+                                {tag}
+                            </span>
+                        ))}
+                        {game.community_tags.length > 4 && (
+                            <span style={{ fontSize: s(9), color: "#666" }}>+{game.community_tags.length - 4}</span>
+                        )}
+                    </div>
+                )}
+
+                {/* Compatibility & Reviews row */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: s(8), marginTop: s(4) }}>
+                    {/* Deck status */}
+                    {game.deck_status && (
+                        <span style={{
+                            fontSize: s(9),
+                            padding: `${s(3)}px ${s(8)}px`,
+                            backgroundColor: `${DECK_STATUS_COLORS[game.deck_status.toLowerCase()] || "#888"}22`,
+                            color: DECK_STATUS_COLORS[game.deck_status.toLowerCase()] || "#888",
+                            borderRadius: s(4),
+                            fontWeight: 500,
+                        }}>
+                            Deck: {game.deck_status}
+                        </span>
+                    )}
+
+                    {/* ProtonDB */}
+                    {game.protondb_tier && (
+                        <span style={{
+                            fontSize: s(9),
+                            padding: `${s(3)}px ${s(8)}px`,
+                            backgroundColor: `${PROTONDB_COLORS[game.protondb_tier.toLowerCase()] || "#888"}22`,
+                            color: PROTONDB_COLORS[game.protondb_tier.toLowerCase()] || "#888",
+                            borderRadius: s(4),
+                            fontWeight: 500,
+                        }}>
+                            ProtonDB: {game.protondb_tier}
+                        </span>
+                    )}
+
+                    {/* Steam review */}
+                    {game.steam_review_score > 0 && (
+                        <span style={{
+                            fontSize: s(9),
+                            padding: `${s(3)}px ${s(8)}px`,
+                            backgroundColor: `${getReviewColor(game.steam_review_score)}22`,
+                            color: getReviewColor(game.steam_review_score),
+                            borderRadius: s(4),
+                            fontWeight: 500,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: s(4),
+                        }}>
+                            <FaStar size={s(8)} />
+                            {game.steam_review_description || `${game.steam_review_score}/10`}
+                        </span>
+                    )}
+
+                    {/* Metacritic */}
+                    {game.metacritic_score > 0 && (
+                        <span style={{
+                            fontSize: s(9),
+                            padding: `${s(3)}px ${s(8)}px`,
+                            backgroundColor: `${getMetacriticColor(game.metacritic_score)}22`,
+                            color: getMetacriticColor(game.metacritic_score),
+                            borderRadius: s(4),
+                            fontWeight: 500,
+                        }}>
+                            MC: {game.metacritic_score}
+                        </span>
+                    )}
+                </div>
             </div>
         </Focusable>
     );
@@ -199,12 +326,17 @@ export function VersusPage() {
     const [seenAppIds, setSeenAppIds] = useState<number[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [poolExhausted, setPoolExhausted] = useState(false);
-    const [winnerScale, setWinnerScale] = useState(0.5);
+    const [winnerScaleAnim, setWinnerScaleAnim] = useState(0.5);
     const [winnerOpacity, setWinnerOpacity] = useState(0);
 
-    const { addGame: addToPlayNext, isInList: isInPlayNext } = usePlayNext();
+    const { addGame: addToPlayNext, isInList: isInPlayNext, removeGame: removeFromPlayNext } = usePlayNext();
     const { excludeGame } = useExcludedGames();
     const mountedRef = useRef(true);
+    const [confirmingExclude, setConfirmingExclude] = useState(false);
+
+    const containerRef = useRef<HTMLDivElement>(null);
+    const scale = useContainerScale(containerRef);
+    const s = (base: number) => Math.round(base * scale);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -226,7 +358,7 @@ export function VersusPage() {
     }, []);
 
     const clearPersistedState = useCallback(() => {
-        call("clear_versus_state").catch(() => {});
+        call("clear_versus_state").catch(() => { });
     }, []);
 
     const loadInitialPair = useCallback(async () => {
@@ -332,14 +464,14 @@ export function VersusPage() {
     const showWinner = useCallback((winner: Game, exhausted: boolean) => {
         setChampion(winner);
         setPoolExhausted(exhausted);
-        setWinnerScale(0.5);
+        setWinnerScaleAnim(0.5);
         setWinnerOpacity(0);
         setPhase("winner");
         clearPersistedState();
 
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                setWinnerScale(1);
+                setWinnerScaleAnim(1);
                 setWinnerOpacity(1);
             });
         });
@@ -395,13 +527,25 @@ export function VersusPage() {
         }
     };
 
+    const handleExcludeGame = useCallback(async () => {
+        if (!champion) return;
+        if (confirmingExclude) {
+            await excludeGame(champion);
+            setConfirmingExclude(false);
+            handleBack();
+        } else {
+            setConfirmingExclude(true);
+            setTimeout(() => setConfirmingExclude(false), 3000);
+        }
+    }, [champion, confirmingExclude, excludeGame]);
+
     const handlePlayAgain = () => {
         clearPersistedState();
         loadInitialPair();
     };
 
     return (
-        <div style={{
+        <div ref={containerRef} style={{
             width: "100%",
             height: "100%",
             backgroundColor: "#0e141b",
@@ -481,10 +625,10 @@ export function VersusPage() {
 
             {/* Round phase — side-by-side cards */}
             {phase === "round" && champion && challenger && (
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: "0 0 auto" }}>
                     <Focusable
                         flow-children="row"
-                        style={{ flex: 1, display: "flex", gap: 16, alignItems: "stretch" }}
+                        style={{ display: "flex", gap: 16, alignItems: "stretch", flex: "0 0 auto" }}
                     >
                         <GameCard
                             game={champion}
@@ -492,6 +636,7 @@ export function VersusPage() {
                             labelColor="#aa8844"
                             onPick={() => handlePick(champion)}
                             disabled={false}
+                            scale={s}
                         />
 
                         <div style={{
@@ -501,7 +646,7 @@ export function VersusPage() {
                             padding: "0 4px",
                         }}>
                             <span style={{
-                                fontSize: 18,
+                                fontSize: s(18),
                                 fontWeight: 900,
                                 color: "#555",
                                 textTransform: "uppercase",
@@ -517,28 +662,29 @@ export function VersusPage() {
                             labelColor="#4488aa"
                             onPick={() => handlePick(challenger)}
                             disabled={false}
+                            scale={s}
                         />
                     </Focusable>
 
                     {/* Bottom actions row — color-coded to match cards */}
                     <Focusable
                         flow-children="row"
-                        style={{ display: "flex", gap: 6, alignItems: "stretch" }}
+                        style={{ display: "flex", gap: s(6), alignItems: "stretch" }}
                     >
                         <Focusable
                             onActivate={() => addToPlayNext(champion)}
                             style={{
                                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                                gap: 4, padding: "6px 4px",
+                                gap: s(4), padding: `${s(6)}px ${s(4)}px`,
                                 backgroundColor: isInPlayNext(champion.appid) ? "#88aa8833" : "#ffffff11",
-                                borderRadius: 6, border: "2px solid transparent", cursor: "pointer",
+                                borderRadius: s(6), border: "2px solid transparent", cursor: "pointer",
                                 borderLeft: "3px solid #aa8844",
                             }}
                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                             onBlur={(e: any) => { e.target.style.borderColor = "transparent"; e.target.style.borderLeft = "3px solid #aa8844"; }}
                         >
-                            <FaListUl size={9} style={{ color: isInPlayNext(champion.appid) ? "#88aa88" : "#888" }} />
-                            <span style={{ fontSize: 9, color: isInPlayNext(champion.appid) ? "#88aa88" : "#aaa" }}>
+                            <FaListUl size={s(9)} style={{ color: isInPlayNext(champion.appid) ? "#88aa88" : "#888" }} />
+                            <span style={{ fontSize: s(9), color: isInPlayNext(champion.appid) ? "#88aa88" : "#aaa" }}>
                                 {isInPlayNext(champion.appid) ? "Queued" : "Queue"}
                             </span>
                         </Focusable>
@@ -547,63 +693,63 @@ export function VersusPage() {
                             onActivate={() => handleExcludeInRound(champion, true)}
                             style={{
                                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                                gap: 4, padding: "6px 4px",
-                                backgroundColor: "#ff666622", borderRadius: 6,
+                                gap: s(4), padding: `${s(6)}px ${s(4)}px`,
+                                backgroundColor: "#ff666622", borderRadius: s(6),
                                 border: "2px solid transparent", cursor: "pointer",
                                 borderLeft: "3px solid #aa8844",
                             }}
                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                             onBlur={(e: any) => { e.target.style.borderColor = "transparent"; e.target.style.borderLeft = "3px solid #aa8844"; }}
                         >
-                            <FaBan size={9} style={{ color: "#ff6666" }} />
-                            <span style={{ fontSize: 9, color: "#ff6666" }}>Exclude</span>
+                            <FaBan size={s(9)} style={{ color: "#ff6666" }} />
+                            <span style={{ fontSize: s(9), color: "#ff6666" }}>Exclude</span>
                         </Focusable>
 
                         <Focusable
                             onActivate={handleStopAndPick}
                             style={{
                                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                                gap: 4, padding: "6px 4px",
-                                backgroundColor: "#aa884433", borderRadius: 6,
+                                gap: s(4), padding: `${s(6)}px ${s(4)}px`,
+                                backgroundColor: "#aa884433", borderRadius: s(6),
                                 border: "2px solid transparent", cursor: "pointer",
                             }}
                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                             onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                         >
-                            <FaStopCircle size={9} style={{ color: "#aa8844" }} />
-                            <span style={{ fontSize: 9, color: "#aa8844" }}>Stop</span>
+                            <FaStopCircle size={s(9)} style={{ color: "#aa8844" }} />
+                            <span style={{ fontSize: s(9), color: "#aa8844" }}>Stop</span>
                         </Focusable>
 
                         <Focusable
                             onActivate={() => handleExcludeInRound(challenger, false)}
                             style={{
                                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                                gap: 4, padding: "6px 4px",
-                                backgroundColor: "#ff666622", borderRadius: 6,
+                                gap: s(4), padding: `${s(6)}px ${s(4)}px`,
+                                backgroundColor: "#ff666622", borderRadius: s(6),
                                 border: "2px solid transparent", cursor: "pointer",
                                 borderLeft: "3px solid #4488aa",
                             }}
                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                             onBlur={(e: any) => { e.target.style.borderColor = "transparent"; e.target.style.borderLeft = "3px solid #4488aa"; }}
                         >
-                            <FaBan size={9} style={{ color: "#ff6666" }} />
-                            <span style={{ fontSize: 9, color: "#ff6666" }}>Exclude</span>
+                            <FaBan size={s(9)} style={{ color: "#ff6666" }} />
+                            <span style={{ fontSize: s(9), color: "#ff6666" }}>Exclude</span>
                         </Focusable>
 
                         <Focusable
                             onActivate={() => addToPlayNext(challenger)}
                             style={{
                                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                                gap: 4, padding: "6px 4px",
+                                gap: s(4), padding: `${s(6)}px ${s(4)}px`,
                                 backgroundColor: isInPlayNext(challenger.appid) ? "#88aa8833" : "#ffffff11",
-                                borderRadius: 6, border: "2px solid transparent", cursor: "pointer",
+                                borderRadius: s(6), border: "2px solid transparent", cursor: "pointer",
                                 borderLeft: "3px solid #4488aa",
                             }}
                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                             onBlur={(e: any) => { e.target.style.borderColor = "transparent"; e.target.style.borderLeft = "3px solid #4488aa"; }}
                         >
-                            <FaListUl size={9} style={{ color: isInPlayNext(challenger.appid) ? "#88aa88" : "#888" }} />
-                            <span style={{ fontSize: 9, color: isInPlayNext(challenger.appid) ? "#88aa88" : "#aaa" }}>
+                            <FaListUl size={s(9)} style={{ color: isInPlayNext(challenger.appid) ? "#88aa88" : "#888" }} />
+                            <span style={{ fontSize: s(9), color: isInPlayNext(challenger.appid) ? "#88aa88" : "#aaa" }}>
                                 {isInPlayNext(challenger.appid) ? "Queued" : "Queue"}
                             </span>
                         </Focusable>
@@ -617,7 +763,7 @@ export function VersusPage() {
                     flex: 1,
                     display: "flex",
                     gap: 16,
-                    transform: `scale(${winnerScale})`,
+                    transform: `scale(${winnerScaleAnim})`,
                     opacity: winnerOpacity,
                     transition: "transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease-out",
                     overflow: "hidden",
@@ -633,10 +779,12 @@ export function VersusPage() {
                         border: "2px solid #aa8844",
                         minWidth: 0,
                     }}>
+                        {/* Header image with WINNER badge overlay */}
                         <div style={{
                             position: "relative",
                             width: "100%",
                             aspectRatio: "460 / 215",
+                            maxHeight: 215,
                             flexShrink: 0,
                         }}>
                             <GameImage
@@ -644,11 +792,7 @@ export function VersusPage() {
                                 isNonSteam={champion.is_non_steam}
                                 matchedAppid={champion.matched_appid}
                                 aspect="landscape"
-                                style={{
-                                    width: "100%",
-                                    height: "100%",
-                                    objectFit: "cover",
-                                }}
+                                style={{ width: "100%", height: "100%", objectFit: "cover" }}
                                 showPlaceholder={true}
                                 placeholderIcon={champion.is_non_steam ? "gamepad" : "steam"}
                             />
@@ -659,21 +803,19 @@ export function VersusPage() {
                             }} />
                             <div style={{
                                 position: "absolute",
-                                top: 8,
-                                left: 8,
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 4,
+                                top: 8, left: 8,
+                                display: "flex", alignItems: "center", gap: 4,
                                 padding: "3px 10px",
-                                backgroundColor: "#aa8844",
-                                borderRadius: 4,
+                                backgroundColor: "#aa8844", borderRadius: 4,
                             }}>
                                 <FaTrophy size={10} style={{ color: "#fff" }} />
                                 <span style={{ fontSize: 9, fontWeight: 700, color: "#fff" }}>WINNER</span>
                             </div>
                         </div>
 
+                        {/* Scrollable metadata body */}
                         <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flex: 1 }}>
+                            {/* Name */}
                             <div style={{ fontSize: 16, fontWeight: "bold", color: "white" }}>
                                 {champion.name}
                                 {champion.is_non_steam && (
@@ -681,11 +823,20 @@ export function VersusPage() {
                                 )}
                             </div>
 
+                            {/* Playtime */}
                             <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#aaa" }}>
                                 <span><FaGamepad style={{ marginRight: 3 }} />{formatPlaytime(champion.playtime_forever)}</span>
                                 <span>Last: {formatLastPlayed(champion.rtime_last_played)}</span>
                             </div>
 
+                            {/* GameMetadataRow (new) */}
+                            <GameMetadataRow game={{
+                                size_on_disk: getSizeOnDisk(champion.appid) ?? champion.size_on_disk,
+                                rtime_purchased: getPurchaseDate(champion.appid) ?? champion.rtime_purchased,
+                                release_date: champion.release_date,
+                            }} scale={(n: number) => n} />
+
+                            {/* Genres */}
                             {champion.genres.length > 0 && (
                                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                                     {champion.genres.map((genre) => (
@@ -693,13 +844,12 @@ export function VersusPage() {
                                             fontSize: 9, padding: "2px 6px",
                                             backgroundColor: "#4488aa33", color: "#88ccff",
                                             borderRadius: 4,
-                                        }}>
-                                            {genre}
-                                        </span>
+                                        }}>{genre}</span>
                                     ))}
                                 </div>
                             )}
 
+                            {/* Community tags (new) */}
                             {champion.community_tags && champion.community_tags.length > 0 && (
                                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                                     <FaTag size={8} style={{ color: "#666" }} />
@@ -708,9 +858,7 @@ export function VersusPage() {
                                             fontSize: 9, padding: "2px 6px",
                                             backgroundColor: "#aa886622", color: "#ddaa77",
                                             borderRadius: 4,
-                                        }}>
-                                            {tag}
-                                        </span>
+                                        }}>{tag}</span>
                                     ))}
                                     {champion.community_tags.length > 5 && (
                                         <span style={{ fontSize: 9, color: "#666" }}>+{champion.community_tags.length - 5}</span>
@@ -718,47 +866,47 @@ export function VersusPage() {
                                 </div>
                             )}
 
+                            {/* Compatibility & reviews (new) */}
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                 {champion.deck_status && (
                                     <span style={{
                                         fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
-                                        backgroundColor: champion.deck_status.toLowerCase() === "verified" ? "#88ff8822" : champion.deck_status.toLowerCase() === "playable" ? "#ffaa0022" : "#ff666622",
-                                        color: champion.deck_status.toLowerCase() === "verified" ? "#88ff88" : champion.deck_status.toLowerCase() === "playable" ? "#ffaa00" : "#ff6666",
-                                    }}>
-                                        Deck: {champion.deck_status}
-                                    </span>
+                                        backgroundColor: `${DECK_STATUS_COLORS[champion.deck_status.toLowerCase()] || "#888"}22`,
+                                        color: DECK_STATUS_COLORS[champion.deck_status.toLowerCase()] || "#888",
+                                    }}>Deck: {champion.deck_status}</span>
                                 )}
-                                {champion.steam_review_description && (
+                                {champion.protondb_tier && (
                                     <span style={{
                                         fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
-                                        backgroundColor: "#ffcc0022", color: "#ffcc00",
+                                        backgroundColor: `${PROTONDB_COLORS[champion.protondb_tier.toLowerCase()] || "#888"}22`,
+                                        color: PROTONDB_COLORS[champion.protondb_tier.toLowerCase()] || "#888",
+                                    }}>ProtonDB: {champion.protondb_tier}</span>
+                                )}
+                                {champion.steam_review_score > 0 && (
+                                    <span style={{
+                                        fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
+                                        backgroundColor: `${getReviewColor(champion.steam_review_score)}22`,
+                                        color: getReviewColor(champion.steam_review_score),
                                         display: "flex", alignItems: "center", gap: 3,
                                     }}>
                                         <FaStar size={8} />
-                                        {champion.steam_review_description}
+                                        {champion.steam_review_description || `${champion.steam_review_score}/10`}
                                     </span>
                                 )}
                                 {champion.metacritic_score > 0 && (
                                     <span style={{
                                         fontSize: 9, padding: "2px 8px", borderRadius: 4, fontWeight: 500,
-                                        backgroundColor: champion.metacritic_score >= 75 ? "#66cc3322" : champion.metacritic_score >= 50 ? "#ffcc3322" : "#ff666622",
-                                        color: champion.metacritic_score >= 75 ? "#66cc33" : champion.metacritic_score >= 50 ? "#ffcc33" : "#ff6666",
-                                    }}>
-                                        MC: {champion.metacritic_score}
-                                    </span>
+                                        backgroundColor: `${getMetacriticColor(champion.metacritic_score)}22`,
+                                        color: getMetacriticColor(champion.metacritic_score),
+                                    }}>MC: {champion.metacritic_score}</span>
                                 )}
                             </div>
 
+                            {/* Versus stats */}
                             <div style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 6,
-                                padding: "5px 10px",
-                                backgroundColor: "#aa884422",
-                                borderRadius: 6,
-                                fontSize: 10,
-                                color: "#aa8844",
-                                fontWeight: 600,
+                                display: "flex", alignItems: "center", gap: 6,
+                                padding: "5px 10px", backgroundColor: "#aa884422",
+                                borderRadius: 6, fontSize: 10, color: "#aa8844", fontWeight: 600,
                             }}>
                                 <FaTrophy size={10} />
                                 {poolExhausted
@@ -766,19 +914,20 @@ export function VersusPage() {
                                     : `Defeated ${rounds} challenger${rounds !== 1 ? "s" : ""}`
                                 }
                             </div>
-
-                            <GameMetadataRow game={champion} />
                         </div>
                     </div>
 
                     {/* Right: action buttons */}
-                    <div style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 8,
-                        minWidth: 140,
-                        justifyContent: "center",
-                    }}>
+                    <Focusable
+                        flow-children="column"
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 8,
+                            minWidth: 140,
+                            justifyContent: "center",
+                        }}
+                    >
                         <Focusable
                             onActivate={handleLaunchGame}
                             style={{
@@ -816,7 +965,7 @@ export function VersusPage() {
                         )}
 
                         <Focusable
-                            onActivate={() => addToPlayNext(champion)}
+                            onActivate={isInPlayNext(champion.appid) ? () => removeFromPlayNext(champion.appid) : () => addToPlayNext(champion)}
                             style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 gap: 8, padding: "10px 12px",
@@ -824,8 +973,8 @@ export function VersusPage() {
                                 borderRadius: 8,
                                 border: "2px solid transparent", cursor: "pointer",
                             }}
-                            onFocus={(e: any) => (e.target.style.borderColor = "white")}
-                            onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                            onFocus={(e: any) => e.target.style.borderColor = "white"}
+                            onBlur={(e: any) => e.target.style.borderColor = "transparent"}
                         >
                             <FaListUl size={12} style={{ color: isInPlayNext(champion.appid) ? "#88aa88" : "#aaa" }} />
                             <span style={{ fontSize: 12, color: isInPlayNext(champion.appid) ? "#88aa88" : "#aaa", fontWeight: 600 }}>
@@ -834,21 +983,38 @@ export function VersusPage() {
                         </Focusable>
 
                         <Focusable
+                            onActivate={handleExcludeGame}
+                            style={{
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                gap: 8, padding: "10px 12px",
+                                backgroundColor: confirmingExclude ? "#ff666644" : "#ff666622",
+                                borderRadius: 8,
+                                border: "2px solid transparent", cursor: "pointer",
+                            }}
+                            onFocus={(e: any) => e.target.style.borderColor = "white"}
+                            onBlur={(e: any) => e.target.style.borderColor = "transparent"}
+                        >
+                            <FaBan size={12} style={{ color: "#ff6666" }} />
+                            <span style={{ fontSize: 12, color: "#ff6666", fontWeight: 600 }}>
+                                {confirmingExclude ? "Confirm" : "Never Show"}
+                            </span>
+                        </Focusable>
+
+                        <Focusable
                             onActivate={handlePlayAgain}
                             style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 gap: 8, padding: "10px 12px",
-                                backgroundColor: "#aa884433",
-                                borderRadius: 8,
+                                backgroundColor: "#aa884433", borderRadius: 8,
                                 border: "2px solid transparent", cursor: "pointer",
                             }}
-                            onFocus={(e: any) => (e.target.style.borderColor = "white")}
-                            onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                            onFocus={(e: any) => e.target.style.borderColor = "white"}
+                            onBlur={(e: any) => e.target.style.borderColor = "transparent"}
                         >
                             <FaRedo size={12} style={{ color: "#aa8844" }} />
                             <span style={{ fontSize: 12, color: "#aa8844", fontWeight: 600 }}>New Battle</span>
                         </Focusable>
-                    </div>
+                    </Focusable>
                 </div>
             )}
         </div>
