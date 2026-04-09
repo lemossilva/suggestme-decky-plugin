@@ -6,11 +6,12 @@ import {
     Navigation,
     ConfirmModal,
 } from "@decky/ui";
-import { FaArrowLeft, FaSteam, FaGamepad, FaCheck, FaTimes, FaClock, FaTag, FaStar, FaListUl, FaBan, FaFilter } from "react-icons/fa";
+import { FaArrowLeft, FaSteam, FaGamepad, FaCheck, FaTimes, FaClock, FaTag, FaStar, FaListUl, FaBan, FaFilter, FaThList } from "react-icons/fa";
 import { Game, SuggestFilters } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
 import { GameMetadataRow } from "../utils/gameMetadata";
+import { GameImage } from "../utils/GameImage";
 import { getSizeOnDisk, getPurchaseDate } from "../hooks/useSuggestion";
 import { getFilterSummary } from "../utils/filterUtils";
 import { openModalWithQAMReturn } from "../utils/navigation";
@@ -160,6 +161,7 @@ export function GamesListModal({
 }: GamesListModalProps) {
     const [sortBy, setSortBy] = useState<"name" | "playtime" | "recent">("name");
     const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+    const [compactMode, setCompactMode] = useState(false);
     const [justAddedGames, setJustAddedGames] = useState<Set<number>>(new Set());
     const [iconErrors, setIconErrors] = useState<Set<number>>(new Set());
     const backButtonRef = useRef<HTMLDivElement>(null);
@@ -454,7 +456,7 @@ export function GamesListModal({
                 <PanelSectionRow>
                     <Focusable
                         flow-children="row"
-                        style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}
+                        style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}
                     >
                         {(["name", "playtime", "recent"] as const).map((sort) => (
                             <Focusable
@@ -474,6 +476,26 @@ export function GamesListModal({
                                 {sort === "name" ? "Name" : sort === "playtime" ? "Playtime" : "Recent"}
                             </Focusable>
                         ))}
+                        <div style={{ flex: 1 }} />
+                        <Focusable
+                            onActivate={() => setCompactMode(!compactMode)}
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                padding: "6px 10px",
+                                backgroundColor: "#ffffff11",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                fontSize: 10,
+                                border: "2px solid transparent",
+                            }}
+                            onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                            onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                        >
+                            {compactMode ? <FaThList size={10} /> : <FaListUl size={10} />}
+                            <span>{compactMode ? "Expanded" : "Compact"}</span>
+                        </Focusable>
                     </Focusable>
                 </PanelSectionRow>
 
@@ -545,6 +567,102 @@ export function GamesListModal({
                         const gameJustAdded = justAddedGames.has(game.appid);
                         const gameExcluded = isExcluded(game.appid);
 
+                        // Compact mode row
+                        if (compactMode) {
+                            return (
+                                <PanelSectionRow key={`${game.appid}-${game.is_non_steam}`}>
+                                    <Focusable
+                                        flow-children="row"
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 8,
+                                            padding: "6px 8px",
+                                            backgroundColor: gameExcluded ? "#ff666611" : "#ffffff08",
+                                            borderRadius: 6,
+                                            border: "2px solid transparent",
+                                            opacity: gameExcluded ? 0.6 : 1,
+                                            marginBottom: 4,
+                                        }}
+                                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                    >
+                                        <Focusable
+                                            onActivate={() => handleNavigateToGame(game)}
+                                            style={{
+                                                flex: 1,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 8,
+                                                padding: "4px",
+                                                borderRadius: 4,
+                                                border: "2px solid transparent",
+                                                cursor: "pointer",
+                                                minWidth: 0,
+                                            }}
+                                            onFocus={(e: any) => (e.target.style.borderColor = "#4488aa")}
+                                            onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                        >
+                                            <GameImage
+                                                appid={game.appid}
+                                                isNonSteam={game.is_non_steam}
+                                                matchedAppid={game.matched_appid}
+                                                imgIconUrl={game.img_icon_url}
+                                                aspect="landscape"
+                                                style={{ width: 46, height: 17, borderRadius: 2, flexShrink: 0 }}
+                                                showPlaceholder={true}
+                                                placeholderIcon={game.is_non_steam ? "gamepad" : "steam"}
+                                            />
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{
+                                                    fontSize: 12,
+                                                    overflow: "hidden",
+                                                    textOverflow: "ellipsis",
+                                                    whiteSpace: "nowrap",
+                                                }}>
+                                                    {game.name}
+                                                </div>
+                                                <div style={{ fontSize: 10, color: "#888" }}>
+                                                    {formatPlaytime(game.playtime_forever)}
+                                                </div>
+                                            </div>
+                                        </Focusable>
+                                        <Focusable
+                                            onActivate={() => gameInPlayNext && !gameJustAdded ? handleRemoveFromPlayNext(game.appid) : handleAddToPlayNext(game)}
+                                            style={{
+                                                padding: "8px",
+                                                backgroundColor: gameJustAdded ? "#88ff8833" : (gameInPlayNext ? "#88aa8833" : "#ffffff11"),
+                                                borderRadius: 6,
+                                                border: "2px solid transparent",
+                                                cursor: "pointer",
+                                            }}
+                                            onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                            onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                        >
+                                            <FaListUl size={10} style={{ color: gameJustAdded ? "#88ff88" : (gameInPlayNext ? "#88aa88" : "#888") }} />
+                                        </Focusable>
+                                        {!gameExcluded && (
+                                            <Focusable
+                                                onActivate={() => handleExcludeGame(game)}
+                                                style={{
+                                                    padding: "8px",
+                                                    backgroundColor: "#ff666622",
+                                                    borderRadius: 6,
+                                                    border: "2px solid transparent",
+                                                    cursor: "pointer",
+                                                }}
+                                                onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                            >
+                                                <FaBan size={10} style={{ color: "#ff6666" }} />
+                                            </Focusable>
+                                        )}
+                                    </Focusable>
+                                </PanelSectionRow>
+                            );
+                        }
+
+                        // Expanded mode card
                         return (
                             <PanelSectionRow key={`${game.appid}-${game.is_non_steam}`}>
                                 <Focusable

@@ -1,7 +1,7 @@
 {
   "name": "SuggestMe",
   "author": "Guilherme Lemos",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "main": "main.py",
   "flags": [],
   "api_version": 1,
