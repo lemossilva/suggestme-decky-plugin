@@ -143,10 +143,13 @@ export function SimilarToPage() {
 
     const hasReferences = referenceGames.length > 0;
 
+    const suggestedGameIsHeroic = suggestion?.game && (suggestion.game.source === "epic" || suggestion.game.source === "gog" || suggestion.game.source === "amazon");
+
     const handleLaunch = () => {
         if (suggestion?.game) {
+            const appid = suggestion.game.matched_appid || suggestion.game.appid;
             Navigation.NavigateToLibraryTab();
-            Navigation.Navigate(`/library/app/${suggestion.game.appid}`);
+            Navigation.Navigate(`/library/app/${appid}`);
         }
     };
 
@@ -514,12 +517,13 @@ export function SimilarToPage() {
                             style={{ display: "flex", gap: 8 }}
                         >
                             <Focusable
-                                onActivate={handleLaunch}
+                                onActivate={suggestedGameIsHeroic ? () => {} : handleLaunch}
                                 style={{
                                     flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
                                     gap: 6, padding: "6px 8px",
                                     backgroundColor: "#4488aa", borderRadius: 8,
-                                    border: "2px solid transparent", cursor: "pointer",
+                                    border: "2px solid transparent", cursor: suggestedGameIsHeroic ? "default" : "pointer",
+                                    opacity: suggestedGameIsHeroic ? 0.3 : 1,
                                 }}
                                 onFocus={(e: any) => (e.target.style.borderColor = "white")}
                                 onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
@@ -528,12 +532,11 @@ export function SimilarToPage() {
                                 <span style={{ fontSize: 11, color: "#fff", fontWeight: 600 }}>View</span>
                             </Focusable>
 
-                            {((!suggestedGame.is_non_steam) || (suggestedGame.is_non_steam && suggestedGame.matched_appid)) && (
+                            {((suggestedGame.source === "steam" && !suggestedGame.is_non_steam) || !!suggestedGame.matched_appid) && (
                                 <Focusable
                                     onActivate={() => {
-                                        const storeAppId = suggestedGame.is_non_steam && suggestedGame.matched_appid
-                                            ? suggestedGame.matched_appid : suggestedGame.appid;
-                                        window.open(`steam://store/${storeAppId}`, "_blank");
+                                        const storeAppId = suggestedGame.matched_appid || suggestedGame.appid;
+                                        window.open(`steam://store/${storeAppId}`);
                                     }}
                                     style={{
                                         flex: 1, display: "flex", alignItems: "center", justifyContent: "center",

@@ -6,11 +6,13 @@ import {
     Navigation,
     ConfirmModal,
 } from "@decky/ui";
-import { FaArrowLeft, FaSteam, FaGamepad, FaCheck, FaTimes, FaClock, FaTag, FaStar, FaListUl, FaBan, FaFilter } from "react-icons/fa";
-import { Game, SuggestFilters } from "../types";
+import { FaArrowLeft, FaCheck, FaTimes, FaClock, FaTag, FaStar, FaListUl, FaBan, FaFilter, FaThList } from "react-icons/fa";
+import { Game, SuggestFilters, HEROIC_STORE_LABELS, HEROIC_STORE_COLORS } from "../types";
 import { usePlayNext } from "../hooks/usePlayNext";
 import { useExcludedGames } from "../hooks/useExcludedGames";
+import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { GameMetadataRow } from "../utils/gameMetadata";
+import { GameImage } from "../utils/GameImage";
 import { getSizeOnDisk, getPurchaseDate } from "../hooks/useSuggestion";
 import { getFilterSummary } from "../utils/filterUtils";
 import { openModalWithQAMReturn } from "../utils/navigation";
@@ -54,7 +56,7 @@ export type FilterCategory =
     | "metacritic"
     | "missing_field";
 
-type QuickFilter = "all" | "unplayed" | "played" | "steam" | "non_steam";
+type QuickFilter = "all" | "unplayed" | "played" | "steam" | "non_steam" | "heroic";
 
 export interface GamesListModalProps {
     title: string;
@@ -73,17 +75,8 @@ export interface GamesListModalProps {
     filters?: SuggestFilters;
 }
 
-const getGameIconUrl = (game: Game): string | null => {
-    const effectiveAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
-    if (!effectiveAppId) return null;
-    if (game.is_non_steam) {
-        return `https://cdn.cloudflare.steamstatic.com/steam/apps/${effectiveAppId}/capsule_sm_120.jpg`;
-    }
-    return `https://media.steampowered.com/steamcommunity/public/images/apps/${effectiveAppId}/${game.img_icon_url}.jpg`;
-};
-
 const getIconDimensions = (game: Game) => {
-    if (game.is_non_steam) {
+    if (game.is_non_steam || game.source !== "steam") {
         return { width: 86, height: 32 };
     }
     return { width: 32, height: 32 };
@@ -160,8 +153,9 @@ export function GamesListModal({
 }: GamesListModalProps) {
     const [sortBy, setSortBy] = useState<"name" | "playtime" | "recent">("name");
     const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+    const [installedOnly, setInstalledOnly] = useState(false);
+    const [compactMode, setCompactMode] = useState(false);
     const [justAddedGames, setJustAddedGames] = useState<Set<number>>(new Set());
-    const [iconErrors, setIconErrors] = useState<Set<number>>(new Set());
     const backButtonRef = useRef<HTMLDivElement>(null);
 
     const containerRef = useRef<HTMLDivElement>(null);
@@ -170,6 +164,8 @@ export function GamesListModal({
 
     const { addGame: addToPlayNext, isInList: isInPlayNext, removeGame: removeFromPlayNext } = usePlayNext();
     const { excludeGame, isExcluded } = useExcludedGames();
+    const { config } = useSuggestMeConfig();
+    const heroicEnabled = config.heroic_import_enabled ?? false;
 
     useEffect(() => {
         // Only auto-focus back button when NOT showing top spacer
@@ -190,9 +186,13 @@ export function GamesListModal({
     const quickFilteredGames = baseFilteredGames.filter(g => {
         if (quickFilter === "unplayed") return g.playtime_forever === 0;
         if (quickFilter === "played") return g.playtime_forever > 0;
-        if (quickFilter === "steam") return !g.is_non_steam;
-        if (quickFilter === "non_steam") return g.is_non_steam;
+        if (quickFilter === "steam") return g.source === "steam" && !g.is_non_steam;
+        if (quickFilter === "non_steam") return g.source === "steam" && g.is_non_steam;
+        if (quickFilter === "heroic") return g.source !== "steam";
         return true;
+    }).filter(g => {
+        if (!installedOnly) return true;
+        return g.is_installed !== false;
     });
 
     const sortedGames = [...quickFilteredGames].sort((a, b) => {
@@ -206,6 +206,7 @@ export function GamesListModal({
     });
 
     const handleNavigateToGame = (game: Game) => {
+        if (game.source !== "steam") return;
         const appid = game.appid;
         Navigation.NavigateToLibraryTab();
         Navigation.Navigate(`/library/app/${appid}`);
@@ -267,10 +268,6 @@ export function GamesListModal({
         );
     };
 
-    const handleIconError = (appid: number) => {
-        setIconErrors(prev => new Set(prev).add(appid));
-    };
-
     const isFieldHighlighted = (field: keyof Game): boolean => {
         return highlightField === field;
     };
@@ -287,11 +284,12 @@ export function GamesListModal({
 
     const unplayedCount = baseFilteredGames.filter(g => g.playtime_forever === 0).length;
     const playedCount = baseFilteredGames.filter(g => g.playtime_forever > 0).length;
-    const steamCount = baseFilteredGames.filter(g => !g.is_non_steam).length;
-    const nonSteamCount = baseFilteredGames.filter(g => g.is_non_steam).length;
+    const steamCount = baseFilteredGames.filter(g => g.source === "steam" && !g.is_non_steam).length;
+    const nonSteamCount = baseFilteredGames.filter(g => g.source === "steam" && g.is_non_steam).length;
+    const heroicCount = baseFilteredGames.filter(g => g.source !== "steam").length;
 
     return (
-        <div ref={containerRef} style={{ padding: `${s(16)}px ${s(16)}px ${s(80)}px ${s(16)}px`, maxHeight: "calc(100vh - 60px)", overflowY: "auto" }}>
+        <div ref={containerRef} style={{ padding: `${s(16)}px ${s(16)}px ${s(80)}px ${s(16)}px`, maxHeight: "calc(100vh - 60px)", overflowY: "auto", boxSizing: 'border-box', width: '100%' }}>
             {showTopSpacer && (
                 <>
                     <Focusable
@@ -330,7 +328,7 @@ export function GamesListModal({
                 {showNonSteamToggles && (
                     <>
                         <PanelSectionRow>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", boxSizing: 'border-box' }}>
                                 <span style={{ fontSize: 11 }}>Include Non-Steam</span>
                                 <Focusable
                                     onActivate={() => onIncludeNonSteamChange?.(!includeNonSteam)}
@@ -350,7 +348,7 @@ export function GamesListModal({
                             </div>
                         </PanelSectionRow>
                         <PanelSectionRow>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", opacity: includeNonSteam ? 1 : 0.4 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", boxSizing: 'border-box', opacity: includeNonSteam ? 1 : 0.4 }}>
                                 <span style={{ fontSize: 11 }}>Include Unmatched</span>
                                 <Focusable
                                     onActivate={includeNonSteam ? () => onIncludeUnmatchedChange?.(!includeUnmatched) : undefined}
@@ -422,11 +420,12 @@ export function GamesListModal({
                                 { key: "played", label: "Played", count: playedCount },
                                 { key: "steam", label: "Steam", count: steamCount },
                                 { key: "non_steam", label: "Non-Steam", count: nonSteamCount },
-                            ] as const).map(({ key, label, count }) => (
-                                count > 0 && (
+                                { key: "heroic", label: "Heroic", count: heroicCount, hidden: !heroicEnabled },
+                            ] as { key: string; label: string; count: number; hidden?: boolean }[]).map(({ key, label, count, hidden }) => (
+                                !hidden && count > 0 && (
                                     <Focusable
                                         key={key}
-                                        onActivate={() => setQuickFilter(key)}
+                                        onActivate={() => setQuickFilter(key as QuickFilter)}
                                         style={{
                                             padding: "4px 8px",
                                             backgroundColor: quickFilter === key ? "#4488aa" : "#ffffff11",
@@ -450,11 +449,34 @@ export function GamesListModal({
                     </div>
                 </PanelSectionRow>
 
+                {heroicCount > 0 && (
+                    <PanelSectionRow>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", boxSizing: 'border-box' }}>
+                            <span style={{ fontSize: 11, color: "#888" }}>Installed only</span>
+                            <Focusable
+                                onActivate={() => setInstalledOnly(!installedOnly)}
+                                style={{
+                                    padding: "4px 10px",
+                                    backgroundColor: installedOnly ? "#4488aa" : "#ffffff11",
+                                    borderRadius: 4,
+                                    fontSize: 10,
+                                    cursor: "pointer",
+                                    border: "2px solid transparent",
+                                }}
+                                onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                            >
+                                {installedOnly ? "ON" : "OFF"}
+                            </Focusable>
+                        </div>
+                    </PanelSectionRow>
+                )}
+
                 {/* Sort Options */}
                 <PanelSectionRow>
                     <Focusable
                         flow-children="row"
-                        style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}
+                        style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}
                     >
                         {(["name", "playtime", "recent"] as const).map((sort) => (
                             <Focusable
@@ -474,6 +496,26 @@ export function GamesListModal({
                                 {sort === "name" ? "Name" : sort === "playtime" ? "Playtime" : "Recent"}
                             </Focusable>
                         ))}
+                        <div style={{ flex: 1 }} />
+                        <Focusable
+                            onActivate={() => setCompactMode(!compactMode)}
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                padding: "6px 10px",
+                                backgroundColor: "#ffffff11",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                fontSize: 10,
+                                border: "2px solid transparent",
+                            }}
+                            onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                            onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                        >
+                            {compactMode ? <FaThList size={10} /> : <FaListUl size={10} />}
+                            <span>{compactMode ? "Expanded" : "Compact"}</span>
+                        </Focusable>
                     </Focusable>
                 </PanelSectionRow>
 
@@ -538,15 +580,115 @@ export function GamesListModal({
                     </PanelSectionRow>
                 ) : (
                     sortedGames.map((game) => {
-                        const iconUrl = getGameIconUrl(game);
-                        const showFallbackIcon = !iconUrl || iconErrors.has(game.appid);
                         const { width: iconWidth, height: iconHeight } = getIconDimensions(game);
                         const gameInPlayNext = isInPlayNext(game.appid);
                         const gameJustAdded = justAddedGames.has(game.appid);
                         const gameExcluded = isExcluded(game.appid);
+                        const isExternal = game.is_non_steam || game.source !== "steam";
 
+                        // Compact mode row
+                        if (compactMode) {
+                            return (
+                                <PanelSectionRow key={`${game.appid}-${isExternal}`}>
+                                    <Focusable
+                                        flow-children="row"
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 8,
+                                            padding: "6px 8px",
+                                            backgroundColor: gameExcluded ? "#ff666611" : "#ffffff08",
+                                            borderRadius: 6,
+                                            border: "2px solid transparent",
+                                            opacity: gameExcluded ? 0.6 : 1,
+                                            marginBottom: 4,
+                                        }}
+                                        onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                        onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                    >
+                                        <Focusable
+                                            onActivate={() => handleNavigateToGame(game)}
+                                            style={{
+                                                flex: 1,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 8,
+                                                padding: "4px",
+                                                borderRadius: 4,
+                                                border: "2px solid transparent",
+                                                cursor: "pointer",
+                                                minWidth: 0,
+                                            }}
+                                            onFocus={(e: any) => (e.target.style.borderColor = "#4488aa")}
+                                            onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                        >
+                                            <GameImage
+                                                appid={game.appid}
+                                                isNonSteam={game.is_non_steam || game.source !== "steam"}
+                                                matchedAppid={game.matched_appid}
+                                                imgIconUrl={game.img_icon_url}
+                                                aspect="landscape"
+                                                style={{ width: 46, height: 17, borderRadius: 2, flexShrink: 0 }}
+                                                showPlaceholder={true}
+                                                placeholderIcon={game.is_non_steam || game.source !== "steam" ? "gamepad" : "steam"}
+                                            />
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{
+                                                    fontSize: 12,
+                                                    overflow: "hidden",
+                                                    textOverflow: "ellipsis",
+                                                    whiteSpace: "nowrap",
+                                                }}>
+                                                    {game.name}
+                                                    {game.source !== "steam" && (
+                                                        <span style={{ marginLeft: 6, fontSize: 9, color: HEROIC_STORE_COLORS[game.source] || "#888", opacity: 0.7 }}>
+                                                            {HEROIC_STORE_LABELS[game.source] || game.source}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div style={{ fontSize: 10, color: "#888" }}>
+                                                    {formatPlaytime(game.playtime_forever)}
+                                                </div>
+                                            </div>
+                                        </Focusable>
+                                        <Focusable
+                                            onActivate={() => gameInPlayNext && !gameJustAdded ? handleRemoveFromPlayNext(game.appid) : handleAddToPlayNext(game)}
+                                            style={{
+                                                padding: "8px",
+                                                backgroundColor: gameJustAdded ? "#88ff8833" : (gameInPlayNext ? "#88aa8833" : "#ffffff11"),
+                                                borderRadius: 6,
+                                                border: "2px solid transparent",
+                                                cursor: "pointer",
+                                            }}
+                                            onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                            onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                        >
+                                            <FaListUl size={10} style={{ color: gameJustAdded ? "#88ff88" : (gameInPlayNext ? "#88aa88" : "#888") }} />
+                                        </Focusable>
+                                        {!gameExcluded && (
+                                            <Focusable
+                                                onActivate={() => handleExcludeGame(game)}
+                                                style={{
+                                                    padding: "8px",
+                                                    backgroundColor: "#ff666622",
+                                                    borderRadius: 6,
+                                                    border: "2px solid transparent",
+                                                    cursor: "pointer",
+                                                }}
+                                                onFocus={(e: any) => (e.target.style.borderColor = "white")}
+                                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                                            >
+                                                <FaBan size={10} style={{ color: "#ff6666" }} />
+                                            </Focusable>
+                                        )}
+                                    </Focusable>
+                                </PanelSectionRow>
+                            );
+                        }
+
+                        // Expanded mode card
                         return (
-                            <PanelSectionRow key={`${game.appid}-${game.is_non_steam}`}>
+                            <PanelSectionRow key={`${game.appid}-${isExternal}`}>
                                 <Focusable
                                     flow-children="column"
                                     style={{
@@ -577,40 +719,22 @@ export function GamesListModal({
                                         onFocus={(e: any) => (e.target.style.borderColor = "#4488aa")}
                                         onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
                                     >
-                                        {showFallbackIcon ? (
-                                            <div
-                                                style={{
-                                                    width: iconWidth,
-                                                    height: iconHeight,
-                                                    borderRadius: game.is_non_steam ? 2 : 4,
-                                                    backgroundColor: game.is_non_steam ? "#aa886622" : "#4488aa22",
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    justifyContent: "center",
-                                                    flexShrink: 0,
-                                                }}
-                                            >
-                                                {game.is_non_steam ? (
-                                                    <FaGamepad size={14} style={{ color: "#aa8866" }} />
-                                                ) : (
-                                                    <FaSteam size={14} style={{ color: "#4488aa" }} />
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <img
-                                                src={iconUrl}
-                                                alt=""
-                                                style={{
-                                                    width: iconWidth,
-                                                    height: iconHeight,
-                                                    borderRadius: game.is_non_steam ? 2 : 4,
-                                                    objectFit: game.is_non_steam ? "contain" : "cover",
-                                                    objectPosition: "center",
-                                                    flexShrink: 0,
-                                                }}
-                                                onError={() => handleIconError(game.appid)}
-                                            />
-                                        )}
+                                        <GameImage
+                                            appid={game.appid}
+                                            isNonSteam={game.is_non_steam || game.source !== "steam"}
+                                            matchedAppid={game.matched_appid}
+                                            imgIconUrl={game.img_icon_url}
+                                            aspect={isExternal ? "landscape" : "square"}
+                                            style={{
+                                                width: iconWidth,
+                                                height: iconHeight,
+                                                borderRadius: isExternal ? 2 : 4,
+                                                flexShrink: 0,
+                                            }}
+                                            showPlaceholder={true}
+                                            placeholderIcon={isExternal ? "gamepad" : "steam"}
+                                            objectFit={isExternal ? "contain" : "cover"}
+                                        />
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div
                                                 style={{
@@ -625,7 +749,27 @@ export function GamesListModal({
                                                 {game.name}
                                             </div>
                                             <div style={{ fontSize: 10, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
-                                                {game.is_non_steam ? (
+                                                {game.source !== "steam" ? (
+                                                    <>
+                                                        <span style={{ color: HEROIC_STORE_COLORS[game.source] || "#888" }}>
+                                                            {HEROIC_STORE_LABELS[game.source] || game.source}
+                                                        </span>
+                                                        {game.match_status === "matched" && (
+                                                            <>
+                                                                <span style={{ color: "#666" }}>•</span>
+                                                                <span style={{ color: "#88aa88", display: "flex", alignItems: "center", gap: 3 }}>
+                                                                    <FaCheck size={8} /> Matched
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                        {!game.is_installed && (
+                                                            <>
+                                                                <span style={{ color: "#666" }}>•</span>
+                                                                <span style={{ color: "#ff8866" }}>Not installed</span>
+                                                            </>
+                                                        )}
+                                                    </>
+                                                ) : isExternal ? (
                                                     <>
                                                         <span>Non-Steam</span>
                                                         {game.match_status === "matched" && (

@@ -1,7 +1,7 @@
 # SuggestMe
 
 ![SuggestMe](https://img.shields.io/badge/Decky-Plugin-blue)
-![Version](https://img.shields.io/badge/release-v1.5.2-green)
+![Version](https://img.shields.io/badge/release-v1.6.0-green)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)
 
 ![SuggestMe Promo](assets/promo.png)
@@ -44,6 +44,12 @@ Fine-tune how Intelligent, Fresh Air, and Similar To modes score games:
 - **Auto-detection** - Automatically detects Non-Steam games added to your Steam library
 - **Store matching** - Matches Non-Steam games with their Steam store equivalents to pull metadata (tags, genres, Deck status)
 
+### Heroic Games Launcher Support
+- **Library import** - Import your Epic Games, GOG, and Amazon Prime Gaming libraries from Heroic Games Launcher
+- **Auto-detection** - Automatically detects Heroic installations in standard locations
+- **Store matching** - Matches imported games to Steam store entries for full metadata enrichment
+- **Install tracking** - Tracks which Heroic games are currently installed and provides install-only filtering
+
 ### Intelligent Library Sync
 - **Sleep-proof syncing** - Library sync saves progress periodically. If you exit the plugin or the Deck goes to sleep, the sync will resume from where it left off
 - **Comprehensive metadata** - Fetches genres, categories, community tags, Valve Deck verification status, and ProtonDB ratings for every game
@@ -52,6 +58,7 @@ Fine-tune how Intelligent, Fresh Air, and Similar To modes score games:
 - **Statistics Tab** - View data quality and metadata coverage analysis for your library. Track how many games are fully enriched vs missing key data like genres, tags, or scores, and click through to see exactly which games need metadata updates
 - **Spin Wheel** - Can't decide even with suggestions? Let the Spin Wheel randomly pick a game for you from your filtered candidates. The wheel is fully responsive and looks great on both the Deck and external displays.
 - **Track history** - Previously suggested games are tracked per-mode with quick actions to launch them, add them to Play Next, or exclude them directly from the history view.
+- **Compact Mode** - Toggle between detailed game cards and a compact list view for faster browsing of large filtered pools
 - **Play Next & Excluded Lists** - Add games to a queue to play later, or exclude games from ever being suggested
 - **Steam Collections Integration** - Sync your Play Next queue and Excluded games directly to native Steam Collections, with optional auto-sync on every change
 - **Steam UI integration** - "Launch Game" button takes you directly to the game's library page
@@ -230,7 +237,7 @@ Fine-tune how Intelligent, Fresh Air, and Similar To modes score games:
 ## Installation
 
 ### From Decky Store
-*Pending approval in the Decky Store.*
+*Available in the Decky Store.*
 
 ### Manual Installation
 1. Download the latest release from the [Releases](https://github.com/lemossilva/suggestme-decky-plugin/releases) page

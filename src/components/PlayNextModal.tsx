@@ -6,7 +6,7 @@ import {
     PanelSectionRow,
     Spinner,
 } from "@decky/ui";
-import { routerHook, call, toaster } from "@decky/api";
+import { call, toaster } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FaListUl, FaTrash, FaSync, FaChevronRight, FaStore, FaArrowUp, FaArrowDown, FaCheck } from "react-icons/fa";
 import { PlayNextEntry } from "../types";
@@ -64,8 +64,9 @@ const GameItem = ({
     isLast: boolean;
 }) => {
     const [focused, setFocused] = useState(false);
-    const canShowStore = !game.is_non_steam || (game.is_non_steam && game.matched_appid);
-    const storeAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
+    const isHeroic = game.source === "epic" || game.source === "gog" || game.source === "amazon";
+    const canShowStore = !game.is_non_steam || !!game.matched_appid;
+    const storeAppId = game.matched_appid || game.appid;
 
     return (
         <Focusable
@@ -95,9 +96,9 @@ const GameItem = ({
             </div>
 
             <Focusable
-                onActivate={() => {
+                onActivate={isHeroic ? () => {} : () => {
                     Navigation.NavigateToLibraryTab();
-                    Navigation.Navigate(`/library/app/${game.appid}`);
+                    Navigation.Navigate(`/library/app/${storeAppId}`);
                 }}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
@@ -136,6 +137,9 @@ const GameItem = ({
                         {game.name}
                         {game.is_non_steam && (
                             <span style={{ fontSize: 9, color: '#6688aa' }}>(Non-Steam)</span>
+                        )}
+                        {isHeroic && (
+                            <span style={{ fontSize: 9, color: '#66aa88' }}>(Heroic)</span>
                         )}
                     </div>
                     <div style={{ fontSize: 10, color: '#888' }}>
@@ -588,14 +592,6 @@ export const PlayNextPage = () => {
         </div>
     );
 };
-
-export function registerPlayNextRoute() {
-    routerHook.addRoute(PLAY_NEXT_ROUTE, () => <PlayNextPage />);
-}
-
-export function unregisterPlayNextRoute() {
-    routerHook.removeRoute(PLAY_NEXT_ROUTE);
-}
 
 export function navigateToPlayNext() {
     Navigation.CloseSideMenus();

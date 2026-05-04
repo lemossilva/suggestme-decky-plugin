@@ -1,6 +1,6 @@
 import { ButtonItem, PanelSectionRow, Focusable } from "@decky/ui";
 import { FaExternalLinkAlt, FaDice, FaGamepad, FaTimes, FaStar, FaStore, FaCalendarAlt } from "react-icons/fa";
-import { Game, SuggestMode, MODE_LABELS } from "../types";
+import { Game, SuggestMode, MODE_LABELS, HEROIC_STORE_LABELS } from "../types";
 import { GameImage } from "../utils/GameImage";
 
 interface SuggestionCardProps {
@@ -81,7 +81,12 @@ export function SuggestionCard({
       <div style={{ padding: "12px" }}>
         <div style={{ fontSize: "15px", fontWeight: "bold", color: "white", marginBottom: 8 }}>
           {game.name}
-          {game.is_non_steam && (
+          {game.source !== "steam" && (
+            <span style={{ marginLeft: "8px", fontSize: 10, color: "#6688aa", fontWeight: 400, border: "1px solid #6688aa66", padding: "1px 6px", borderRadius: 3 }}>
+              {HEROIC_STORE_LABELS[game.source] || "Non-Steam"}
+            </span>
+          )}
+          {game.is_non_steam && game.source === "steam" && (
             <span style={{ marginLeft: "8px", fontSize: 11, color: "#6688aa", fontWeight: 400 }}>(Non-Steam)</span>
           )}
         </div>
@@ -209,19 +214,18 @@ export function SuggestionCard({
         )}
 
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={onLaunch}>
+          <ButtonItem layout="below" onClick={onLaunch} disabled={game.source !== "steam" || (game.is_non_steam && !game.matched_appid)}>
             <FaExternalLinkAlt style={{ marginRight: "8px" }} />
-            View Game
+            {game.source !== "steam" ? (game.is_installed ? "Open Game" : "Not Installed") : "View Game"}
           </ButtonItem>
         </PanelSectionRow>
 
-        {((!game.is_non_steam) || (game.is_non_steam && game.matched_appid)) && (
+        {(game.source === "steam" || game.matched_appid) && (
           <PanelSectionRow>
             <ButtonItem
               layout="below"
               onClick={() => {
-                const storeAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
-                window.open(`steam://store/${storeAppId}`, "_blank");
+                window.open(`steam://store/${game.matched_appid || game.appid}`);
               }}
             >
               <FaStore style={{ marginRight: "8px" }} />

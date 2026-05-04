@@ -13,7 +13,7 @@ const STEAM_MEDIA = 'https://media.steampowered.com/steamcommunity/public/images
 const STEAM_AKAMAI = 'https://steamcdn-a.akamaihd.net/steam/apps';
 
 export function getEffectiveAppId(options: GameImageOptions): number {
-  if (options.isNonSteam && options.matchedAppid) {
+  if (options.matchedAppid) {
     return options.matchedAppid;
   }
   return options.appid;

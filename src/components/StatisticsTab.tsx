@@ -35,6 +35,7 @@ interface LibraryStats {
     totalGames: number;
     steamGames: number;
     nonSteamGames: number;
+    heroicGames: number;
     matchedNonSteam: number;
     unmatchedNonSteam: number;
     fullyEnriched: number;
@@ -74,7 +75,10 @@ const getSeverityBg = (percentage: number): string => {
     return "#ff666622";
 };
 
-const isCoverageEligible = (game: Game) => !(game.is_non_steam && game.match_status !== "matched");
+const isCoverageEligible = (game: Game) => {
+    const isExternal = game.is_non_steam || game.source === "epic" || game.source === "gog" || game.source === "amazon";
+    return !(isExternal && game.match_status !== "matched");
+};
 
 export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     const [games, setGames] = useState<Game[]>([]);
@@ -87,13 +91,13 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     const [gamesListView, setGamesListView] = useState<GamesListView | null>(null);
 
     const computeStats = useCallback((gameList: Game[]): LibraryStats => {
-        const total = gameList.length;
         const coverageEligibleGames = gameList.filter(isCoverageEligible);
         const coverageTotal = coverageEligibleGames.length;
-        const steamGames = gameList.filter(g => !g.is_non_steam);
+        const steamGames = gameList.filter(g => g.source === "steam");
         const nonSteamGames = gameList.filter(g => g.is_non_steam);
+        const heroicGames = gameList.filter(g => (g.source === "epic" || g.source === "gog" || g.source === "amazon") && g.match_status === "matched");
         const matchedNonSteam = nonSteamGames.filter(g => g.match_status === "matched");
-        const unmatchedNonSteam = nonSteamGames.filter(g => g.match_status !== "matched");
+        const unmatchedNonSteam = gameList.filter(g => (g.is_non_steam || g.source === "epic" || g.source === "gog" || g.source === "amazon") && g.match_status !== "matched");
 
         const fieldStats: MetadataFieldStats[] = TRACKED_FIELDS.map(({ field, label, checkFn }) => {
             const filled = coverageEligibleGames.filter(checkFn).length;
@@ -127,9 +131,10 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
         }
 
         return {
-            totalGames: total,
+            totalGames: coverageTotal,
             steamGames: steamGames.length,
             nonSteamGames: nonSteamGames.length,
+            heroicGames: heroicGames.length,
             matchedNonSteam: matchedNonSteam.length,
             unmatchedNonSteam: unmatchedNonSteam.length,
             fullyEnriched,
@@ -214,7 +219,7 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     const handleViewDistributionItem = (value: string, mode: DistributionMode) => {
         blurActiveElement();
         const field = mode === "genres" ? "genres" : mode === "community_tags" ? "community_tags" : "tags";
-        const filteredGames = games.filter(g => {
+        const filteredGames = coverageGames.filter(g => {
             const arr = g[field] as string[];
             return Array.isArray(arr) && arr.some(v => v.toLowerCase() === value.toLowerCase());
         });
@@ -238,7 +243,7 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     const handleViewDeckStatus = (status: string, isProtonDB: boolean) => {
         blurActiveElement();
         const field = isProtonDB ? "protondb_tier" : "deck_status";
-        const filteredGames = games.filter(g => {
+        const filteredGames = coverageGames.filter(g => {
             const val = g[field] as string;
             if (!val) return status.toLowerCase() === "unknown";
             return val.toLowerCase() === status.toLowerCase();
@@ -257,9 +262,9 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
     const handleViewReviews = (reviewKey: string, isMetacritic: boolean) => {
         blurActiveElement();
         let filteredGames: Game[];
-        
+
         if (isMetacritic) {
-            filteredGames = games.filter(g => {
+            filteredGames = coverageGames.filter(g => {
                 const score = g.metacritic_score;
                 if (reviewKey === "90+") return score >= 90;
                 if (reviewKey === "80-89") return score >= 80 && score < 90;
@@ -271,7 +276,7 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
                 return false;
             });
         } else {
-            filteredGames = games.filter(g => {
+            filteredGames = coverageGames.filter(g => {
                 const desc = g.steam_review_description?.trim() || "";
                 if (reviewKey === "No Reviews") return !desc || desc === "";
                 return desc === reviewKey;
@@ -293,7 +298,7 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
         if (distributionMode === "genres") return breakdown.genres;
         if (distributionMode === "community_tags") {
             const tagCounts: Record<string, number> = {};
-            for (const game of games) {
+            for (const game of coverageGames) {
                 if (game.community_tags) {
                     for (const tag of game.community_tags) {
                         tagCounts[tag] = (tagCounts[tag] || 0) + 1;
@@ -305,7 +310,7 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
         }
         if (distributionMode === "tags") {
             const featureCounts: Record<string, number> = {};
-            for (const game of games) {
+            for (const game of coverageGames) {
                 if (game.tags) {
                     for (const tag of game.tags) {
                         featureCounts[tag] = (featureCounts[tag] || 0) + 1;
@@ -411,30 +416,31 @@ export function StatisticsTab({ onViewGames }: StatisticsTabProps) {
                 <PanelSectionRow>
                     <Focusable
                         style={{
-                            display: "flex",
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr 1fr 1fr",
                             gap: 8,
                             marginBottom: 16,
                         }}
                     >
-                        <div style={{ flex: 1, padding: 10, backgroundColor: "#ffffff08", borderRadius: 8, textAlign: "center" }}>
+                        <div style={{ padding: 10, backgroundColor: "#ffffff08", borderRadius: 8, textAlign: "center" }}>
                             <FaSteam size={14} style={{ color: "#4488aa", marginBottom: 4 }} />
                             <div style={{ fontSize: 14, fontWeight: 600 }}>{stats.steamGames}</div>
                             <div style={{ fontSize: 9, color: "#888" }}>Steam</div>
                         </div>
-                        <div style={{ flex: 1, padding: 10, backgroundColor: "#ffffff08", borderRadius: 8, textAlign: "center" }}>
+                        <div style={{ padding: 10, backgroundColor: "#ffffff08", borderRadius: 8, textAlign: "center" }}>
                             <FaGamepad size={14} style={{ color: "#aa8866", marginBottom: 4 }} />
                             <div style={{ fontSize: 14, fontWeight: 600 }}>{stats.nonSteamGames}</div>
                             <div style={{ fontSize: 9, color: "#888" }}>Non-Steam</div>
                         </div>
-                        <div style={{ flex: 1, padding: 10, backgroundColor: "#ffffff08", borderRadius: 8, textAlign: "center" }}>
-                            <FaCheck size={14} style={{ color: "#88aa88", marginBottom: 4 }} />
-                            <div style={{ fontSize: 14, fontWeight: 600 }}>{stats.matchedNonSteam}</div>
-                            <div style={{ fontSize: 9, color: "#888" }}>Matched</div>
+                        <div style={{ padding: 10, backgroundColor: "#ffffff08", borderRadius: 8, textAlign: "center" }}>
+                            <FaCheck size={14} style={{ color: "#66aa88", marginBottom: 4 }} />
+                            <div style={{ fontSize: 14, fontWeight: 600 }}>{stats.heroicGames}</div>
+                            <div style={{ fontSize: 9, color: "#888" }}>Heroic</div>
                         </div>
-                        <div style={{ flex: 1, padding: 10, backgroundColor: "#ffffff08", borderRadius: 8, textAlign: "center" }}>
+                        <div style={{ padding: 10, backgroundColor: "#ffffff08", borderRadius: 8, textAlign: "center" }}>
                             <FaExclamationTriangle size={14} style={{ color: "#ffaa00", marginBottom: 4 }} />
                             <div style={{ fontSize: 14, fontWeight: 600 }}>{stats.unmatchedNonSteam}</div>
-                            <div style={{ fontSize: 9, color: "#888" }}>Unmatched</div>
+                            <div style={{ fontSize: 9, color: "#888" }}>Unmatched (NS+H)</div>
                         </div>
                     </Focusable>
                 </PanelSectionRow>

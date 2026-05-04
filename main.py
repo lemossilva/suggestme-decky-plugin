@@ -5,6 +5,7 @@ import random
 import asyncio
 import ssl
 import re
+import hashlib
 import certifi
 import aiohttp
 from dataclasses import dataclass, asdict, field
@@ -58,6 +59,9 @@ class Game:
     steam_review_description: str = ""
     metacritic_score: int = 0
     metacritic_url: str = ""
+    source: str = "steam"
+    heroic_app_name: str = ""
+    is_installed: bool = True
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -87,6 +91,9 @@ class Game:
             steam_review_description=data.get("steam_review_description", ""),
             metacritic_score=data.get("metacritic_score", 0),
             metacritic_url=data.get("metacritic_url", ""),
+            source=data.get("source", "steam"),
+            heroic_app_name=data.get("heroic_app_name", ""),
+            is_installed=data.get("is_installed", True),
         )
 
 
@@ -98,6 +105,7 @@ class SuggestionHistoryEntry:
     mode: str
     is_non_steam: bool = False
     matched_appid: Optional[int] = None
+    source: str = "steam"
     filters: Optional[dict] = None
     preset_name: Optional[str] = None
     extra_data: Optional[dict] = None
@@ -115,6 +123,7 @@ class SuggestionHistoryEntry:
             mode=data.get("mode", "luck"),
             is_non_steam=data.get("is_non_steam", False),
             matched_appid=data.get("matched_appid"),
+            source=data.get("source", "steam"),
             filters=data.get("filters"),
             preset_name=data.get("preset_name"),
             extra_data=data.get("extra_data"),
@@ -136,6 +145,7 @@ class PlayNextEntry:
     name: str
     is_non_steam: bool = False
     matched_appid: Optional[int] = None
+    source: str = "steam"
     playtime_forever: int = 0
     added_at: int = 0
 
@@ -149,6 +159,7 @@ class PlayNextEntry:
             name=data.get("name", "Unknown"),
             is_non_steam=data.get("is_non_steam", False),
             matched_appid=data.get("matched_appid"),
+            source=data.get("source", "steam"),
             playtime_forever=data.get("playtime_forever", 0),
             added_at=data.get("added_at", 0),
         )
@@ -160,6 +171,7 @@ class ExcludedGame:
     name: str
     is_non_steam: bool = False
     matched_appid: Optional[int] = None
+    source: str = "steam"
     playtime_forever: int = 0
     deck_status: str = ""
     excluded_at: int = 0
@@ -174,6 +186,7 @@ class ExcludedGame:
             name=data.get("name", "Unknown"),
             is_non_steam=data.get("is_non_steam", False),
             matched_appid=data.get("matched_appid"),
+            source=data.get("source", "steam"),
             playtime_forever=data.get("playtime_forever", 0),
             deck_status=data.get("deck_status", ""),
             excluded_at=data.get("excluded_at", 0),
@@ -301,6 +314,7 @@ DEFAULT_SETTINGS = {
         "not_installed_only": False,
         "non_steam_only": False,
         "exclude_non_steam": False,
+        "exclude_heroic": False,
         "deck_status": [],
         "protondb_tier": [],
         "include_collections": [],
@@ -331,10 +345,14 @@ DEFAULT_SETTINGS = {
     "exclude_play_next_from_suggestions": False,
     "auto_sync_play_next_collection": False,
     "auto_sync_excluded_collection": False,
+    "auto_sync_new_games": True,
+    "heroic_import_enabled": False,
+    "heroic_enabled_stores": ["epic", "gog", "amazon"],
+    "heroic_custom_path": "",
     "data_version": 0,
 }
 
-DATA_VERSION_CURRENT = 2
+DATA_VERSION_CURRENT = 3
 
 
 class Plugin:
@@ -349,6 +367,8 @@ class Plugin:
     versus_state: dict = None
     _auto_sync_task: asyncio.Task = None
     _shared_session: aiohttp.ClientSession = None
+    _heroic_syncing: bool = False
+    _heroic_sync_progress: dict = None
     
     guided_recency_weight: float = 0.3
     guided_playtime_weight: float = 0.4
@@ -549,6 +569,7 @@ class Plugin:
             mode=mode,
             is_non_steam=game.is_non_steam,
             matched_appid=game.matched_appid,
+            source=game.source,
             filters=filters,
             preset_name=preset_name,
             extra_data=extra_data,
@@ -756,7 +777,8 @@ class Plugin:
         if self._shared_session is None or self._shared_session.closed:
             ssl_ctx = _create_ssl_context()
             connector = aiohttp.TCPConnector(ssl=ssl_ctx, limit=20)
-            self._shared_session = aiohttp.ClientSession(connector=connector)
+            headers = {"Accept-Language": "en"}
+            self._shared_session = aiohttp.ClientSession(connector=connector, headers=headers)
         return self._shared_session
 
     async def get_config(self) -> dict:
@@ -781,6 +803,9 @@ class Plugin:
             "auto_sync_excluded_collection": self.settings.get("auto_sync_excluded_collection", False),
             "auto_sync_new_games": self.settings.get("auto_sync_new_games", True),
             "spin_wheel_banner_colors": self.settings.get("spin_wheel_banner_colors", False),
+            "heroic_import_enabled": self.settings.get("heroic_import_enabled", False),
+            "heroic_enabled_stores": self.settings.get("heroic_enabled_stores", ["epic", "gog", "amazon"]),
+            "heroic_custom_path": self.settings.get("heroic_custom_path", ""),
         }
 
     async def get_credentials(self) -> dict:
@@ -852,6 +877,16 @@ class Plugin:
 
     async def save_similar_to_filter_pool(self, enabled: bool) -> dict:
         self.settings["similar_to_filter_pool"] = enabled
+        success = self._save_settings()
+        return {"success": success}
+
+    async def save_heroic_settings(self, import_enabled: bool = None, enabled_stores: list[str] = None, custom_path: str = None) -> dict:
+        if import_enabled is not None:
+            self.settings["heroic_import_enabled"] = import_enabled
+        if enabled_stores is not None:
+            self.settings["heroic_enabled_stores"] = enabled_stores
+        if custom_path is not None:
+            self.settings["heroic_custom_path"] = custom_path
         success = self._save_settings()
         return {"success": success}
 
@@ -964,6 +999,7 @@ class Plugin:
             name=game_data.get("name", "Unknown"),
             is_non_steam=game_data.get("is_non_steam", False),
             matched_appid=game_data.get("matched_appid"),
+            source=game_data.get("source", "steam"),
             playtime_forever=game_data.get("playtime_forever", 0),
             added_at=int(time.time())
         )
@@ -1043,6 +1079,7 @@ class Plugin:
             name=game_data.get("name", "Unknown"),
             is_non_steam=game_data.get("is_non_steam", False),
             matched_appid=game_data.get("matched_appid"),
+            source=game_data.get("source", "steam"),
             playtime_forever=game_data.get("playtime_forever", 0),
             deck_status=game_data.get("deck_status", ""),
             excluded_at=int(time.time())
@@ -1085,9 +1122,13 @@ class Plugin:
             return {"success": False, "error": str(e)}
 
     async def get_library_status(self) -> dict:
-        steam_games = [g for g in self.library_cache if not g.is_non_steam]
+        steam_games = [g for g in self.library_cache if not g.is_non_steam and g.source == "steam"]
         non_steam_games = [g for g in self.library_cache if g.is_non_steam]
-        
+        heroic_games = [g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "matched"]
+
+        # Total = matched games only (exclude unmatched external games with no metadata)
+        matched_total = len(steam_games) + len([g for g in non_steam_games if g.match_status == "matched"]) + len(heroic_games)
+
         sync_progress = self._load_sync_progress()
         progress_info = None
         if sync_progress:
@@ -1095,12 +1136,13 @@ class Plugin:
                 "current": sync_progress.get("current", 0),
                 "total": sync_progress.get("total", 0),
             }
-        
+
         return {
             "last_refresh": self.last_refresh,
-            "total_games": len(self.library_cache),
+            "total_games": matched_total,
             "steam_games_count": len(steam_games),
             "non_steam_games_count": len(non_steam_games),
+            "heroic_games_count": len(heroic_games),
             "is_refreshing": self.is_refreshing,
             "error": self.refresh_error,
             "sync_progress": progress_info,
@@ -1292,67 +1334,237 @@ class Plugin:
             decky.logger.debug(f"Failed to fetch review summary for {appid}: {e}")
             return {}
 
-    def _normalize_game_name(self, name: str) -> str:
-        normalized = re.sub(r'[^\w\s]', '', name).strip().lower()
+    def _normalize_game_name(self, name: str, mode: str = "default") -> str:
+        normalized = re.sub(r'[^\w\s&]', '', name).strip().lower()
         normalized = re.sub(r'\s+', ' ', normalized)
-        for suffix in [' edition', ' goty', ' definitive', ' complete', ' deluxe', ' ultimate', ' remastered', ' remake']:
-            normalized = normalized.replace(suffix, '')
-        return normalized.strip()
 
-    def _calculate_name_similarity(self, name1: str, name2: str) -> float:
-        n1 = self._normalize_game_name(name1)
-        n2 = self._normalize_game_name(name2)
+        # Normalize "and" <-> "&" so both forms match
+        normalized = normalized.replace(' and ', ' & ')
+
+        # Strip Amazon-specific date suffixes like ": July 11 – 17"
+        normalized = re.sub(r'\s*:\s*(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d+\s*[-–—]\s*\d+.*$', '', normalized)
+
+        # Remove common edition suffixes
+        suffixes = [
+            ' edition', ' goty', ' game of the year',
+            ' definitive', ' complete', ' deluxe', ' ultimate', ' gold',
+            ' remastered', ' remake', ' standard', ' director',
+            ' celebration', ' overkill', ' legacy', ' experimental',
+            ' gourmet', ' diamond', ' trilogy',
+        ]
+        for suffix in suffixes:
+            normalized = normalized.replace(suffix, '')
+
+        # Normalize Roman numerals (for Heroic mode)
+        if mode == "heroic":
+            normalized = self._normalize_roman_numerals(normalized)
+
+        return re.sub(r'\s+', ' ', normalized).strip()
+
+    def _normalize_roman_numerals(self, text: str) -> str:
+        """Convert standalone Roman numerals at end of title to Arabic digits."""
+        _ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
+
+        def _roman_to_int(s: str) -> int | None:
+            if not s or len(s) > 8:
+                return None
+            if not all(c in _ROMAN_VALUES for c in s):
+                return None
+            total = 0
+            prev = 0
+            for ch in reversed(s):
+                val = _ROMAN_VALUES[ch]
+                if val < prev:
+                    total -= val
+                else:
+                    total += val
+                prev = val
+            if total < 1 or total > 3999:
+                return None
+            return total
+
+        words = text.split()
+        if words and _roman_to_int(words[-1]):
+            words[-1] = str(_roman_to_int(words[-1]))
+            return ' '.join(words)
+        return text
+
+    def _calculate_name_similarity(self, name1: str, name2: str, mode: str = "default") -> float:
+        n1 = self._normalize_game_name(name1, mode)
+        n2 = self._normalize_game_name(name2, mode)
         if n1 == n2:
             return 1.0
         if not n1 or not n2:
             return 0.0
+
         words1 = set(n1.split())
         words2 = set(n2.split())
         if not words1 or not words2:
             return 0.0
+
         intersection = len(words1 & words2)
         union = len(words1 | words2)
-        return intersection / union if union > 0 else 0.0
+        jaccard = intersection / union if union > 0 else 0.0
 
-    async def _search_steam_store(self, game_name: str) -> Optional[dict]:
+        score = jaccard
+
+        # Containment bonus
+        if n1 in n2 or n2 in n1:
+            score = max(score, 0.7)
+
+        return score
+
+    _DLC_KEYWORDS = {"dlc", "season pass", "soundtrack", "ost", "expansion"}
+
+    def _is_likely_dlc(self, item_name: str, query_name: str) -> bool:
+        """Check if a store result is likely DLC when the query is not."""
+        item_lower = item_name.lower()
+        query_lower = query_name.lower()
+        # Item has DLC keywords that query doesn't have
+        item_has_dlc = any(kw in item_lower for kw in self._DLC_KEYWORDS)
+        query_has_dlc = any(kw in query_lower for kw in self._DLC_KEYWORDS)
+        return item_has_dlc and not query_has_dlc
+
+    async def _search_steam_store(self, game_name: str, mode: str = "default") -> Optional[dict]:
         clean_name = re.sub(r'[^\w\s]', '', game_name).strip()
         if not clean_name or len(clean_name) < 3:
             return None
-        
-        url = "https://store.steampowered.com/api/storesearch/"
-        params = {"term": clean_name, "cc": "us", "l": "en"}
-        ssl_ctx = _create_ssl_context()
-        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
-        
-        try:
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(url, params=params) as response:
-                    if response.status != 200:
+
+        # Mode-specific settings
+        if mode == "strict":
+            max_items = 15
+            word_count = len(clean_name.split())
+            if word_count < 4:
+                min_score = 0.80
+            elif word_count >= 6:
+                min_score = 0.65
+            else:
+                min_score = 0.72
+        elif mode == "heroic":
+            max_items = 50
+            min_score = 0.45
+        else:
+            max_items = 20
+            min_score = 0.55
+
+        async def _do_search(term: str, compare_name: str = None) -> Optional[dict]:
+            """Search Steam store and score results against compare_name (or game_name if not given)."""
+            cmp_name = compare_name or game_name
+            url = "https://store.steampowered.com/api/storesearch/"
+            params = {"term": term, "cc": "us", "l": "en"}
+            ssl_ctx = _create_ssl_context()
+            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            try:
+                async with aiohttp.ClientSession(connector=connector) as session:
+                    for attempt in range(3):
+                        async with session.get(url, params=params) as response:
+                            if response.status == 429:
+                                wait_time = (attempt + 1) * 2
+                                decky.logger.debug(f"Rate limited for store search '{term}', waiting {wait_time}s (attempt {attempt + 1})")
+                                await asyncio.sleep(wait_time)
+                                continue
+                            if response.status != 200:
+                                return None
+                            data = await response.json()
+                            break
+                    else:
                         return None
-                    data = await response.json()
                     items = data.get("items", [])
                     if not items:
                         return None
-                    
                     best_match = None
                     best_score = 0.0
-                    
-                    for item in items[:5]:
+                    for item in items[:max_items]:
                         item_name = item.get("name", "")
-                        score = self._calculate_name_similarity(game_name, item_name)
+                        item_type = item.get("type", "")
+
+                        if item_type == "dlc" or self._is_likely_dlc(item_name, cmp_name):
+                            continue
+
+                        score = self._calculate_name_similarity(cmp_name, item_name, mode)
+
+                        q_words = self._normalize_game_name(cmp_name, mode).split()
+                        r_words = self._normalize_game_name(item_name, mode).split()
+                        if q_words and r_words:
+                            ratio = len(r_words) / len(q_words)
+                            if ratio < 0.25 or ratio > 3.0:
+                                score *= 0.5
+
+                        if mode == "strict":
+                            q_set = set(q_words)
+                            r_set = set(r_words)
+                            if len(q_set) >= 3 and len(q_set & r_set) < 2:
+                                score *= 0.6
+
                         if score > best_score:
                             best_score = score
                             best_match = item
-                    
-                    if best_match and best_score >= 0.6:
+                    if best_match and best_score >= min_score:
                         return {
                             "appid": best_match.get("id"),
                             "name": best_match.get("name"),
                             "price": best_match.get("price", {}).get("final", 0),
                             "match_confidence": best_score,
                         }
-        except Exception as e:
-            decky.logger.warning(f"Steam store search failed for '{game_name}': {e}")
+            except Exception as e:
+                decky.logger.warning(f"Steam store search failed for '{game_name}': {e}")
+            return None
+
+        # Try original name first
+        result = await _do_search(clean_name)
+        if result:
+            return result
+
+        # Build fallback (search_term, compare_name) pairs
+        fallbacks = []
+        base = clean_name
+
+        # Fallback 1: remove edition suffixes — search with suffix-stripped term, compare against it
+        no_suffixes = base
+        for suffix in ['Definitive', 'Complete', 'Deluxe', 'Ultimate', 'Remastered', 'Remake', 'GOTY', 'Game of the Year', 'Gold', 'Standard', 'Director', 'Celebration', 'Overkill', 'Legacy', 'Experimental', 'Gourmet', 'Diamond']:
+            no_suffixes = re.sub(rf'\s+{suffix}$', '', no_suffixes, flags=re.IGNORECASE)
+        if no_suffixes != base and len(no_suffixes) >= 3:
+            fallbacks.append((no_suffixes, no_suffixes))
+
+        # Fallback 2: main title only — split on common delimiters
+        main_title = re.split(r'[:;\-–—]', base, 1)[0].strip()
+        if main_title and main_title != base and len(main_title) >= 3:
+            fallbacks.append((main_title, main_title))
+
+        # Fallback 2b: also split on " - " for titles like "Move or Die - Couch Party Edition"
+        dash_split = base.split(' - ', 1)[0].strip()
+        if dash_split and dash_split != base and dash_split != main_title and len(dash_split) >= 3:
+            fallbacks.append((dash_split, dash_split))
+
+        # Fallback 3: Roman numerals normalized (Heroic only) — search & compare with normalized
+        if mode == "heroic":
+            roman_normalized = self._normalize_roman_numerals(base)
+            if roman_normalized != base and len(roman_normalized) >= 3:
+                fallbacks.append((roman_normalized, roman_normalized))
+
+        # Fallback 4: first 2 words for very long titles with lots of suffixes
+        words = base.split()
+        if len(words) > 3:
+            first_two = ' '.join(words[:2])
+            if len(first_two) >= 3 and first_two != main_title and first_two != dash_split:
+                fallbacks.append((first_two, first_two))
+
+        # Fallback 5: progressively shorter search terms when exact name yields 0 results
+        # (common for games with punctuation differences like "Towerfall Ascension")
+        short_terms = []
+        if len(words) >= 2:
+            short_terms.append(' '.join(words[:2]))
+        if len(words) >= 1:
+            short_terms.append(words[0])
+        for st in short_terms:
+            if st not in [fb[0] for fb in fallbacks] and len(st) >= 3:
+                fallbacks.append((st, base))
+
+        for search_term, compare_name in fallbacks:
+            result = await _do_search(search_term, compare_name)
+            if result:
+                return result
+
         return None
 
     async def _fetch_steam_tags(self, appid: int, session: aiohttp.ClientSession = None) -> list[str]:
@@ -1516,6 +1728,412 @@ class Plugin:
         
         return games
 
+    def _heroic_appid(self, source: str, app_name: str) -> int:
+        raw = int(hashlib.sha256(f"{source}:{app_name}".encode()).hexdigest(), 16)
+        return 2_000_000_000 + (raw % 1_000_000_000)
+
+    def _get_heroic_config_path(self) -> Optional[str]:
+        custom = self.settings.get("heroic_custom_path", "")
+        if custom and os.path.isdir(custom):
+            return custom
+        candidates = [
+            os.path.expanduser("~/.config/heroic"),
+            os.path.expanduser("~/.var/app/com.heroicgameslauncher.hgl/config/heroic"),
+        ]
+        for path in candidates:
+            if os.path.isdir(path):
+                return path
+        return None
+
+    async def detect_heroic_install(self) -> dict:
+        base = self._get_heroic_config_path()
+        if not base:
+            return {"found": False, "stores": []}
+        stores = []
+        if os.path.exists(os.path.join(base, "nile_config", "nile", "library.json")):
+            stores.append("amazon")
+        if os.path.isdir(os.path.join(base, "legendaryConfig", "legendary", "metadata")):
+            stores.append("epic")
+        if os.path.exists(os.path.join(base, "store_cache", "gog_library.json")):
+            stores.append("gog")
+        return {"found": True, "path": base, "stores": stores}
+
+    def _load_heroic_installed_ids(self, base: str, store: str) -> set[str]:
+        installed_map = {
+            "amazon": os.path.join(base, "nile_config", "nile", "installed.json"),
+            "epic": os.path.join(base, "legendaryConfig", "legendary", "installed.json"),
+            "gog": os.path.join(base, "gog_store", "installed.json"),
+        }
+        installed_path = installed_map.get(store, "")
+        if not installed_path or not os.path.exists(installed_path):
+            return set()
+        try:
+            with open(installed_path) as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return {entry.get("id", "") for entry in data if isinstance(entry, dict)}
+            return set(data.keys())
+        except Exception as e:
+            decky.logger.debug(f"Failed to read installed.json for {store}: {e}")
+            return set()
+
+    _NON_GAME_KEYWORDS = {
+        'soundtrack', 'beta', 'testing', 'test', 'ptr',
+        'art book', 'content', 'dlc', 'season pass', 'demo',
+        'redistributables',
+    }
+
+    def _is_non_game_heroic_entry(self, name: str) -> bool:
+        """Check if a Heroic entry is likely a soundtrack, beta, DLC, or other non-game content."""
+        name_lower = name.lower()
+        return any(kw in name_lower for kw in self._NON_GAME_KEYWORDS)
+
+    async def _detect_heroic_games(self) -> list[Game]:
+        games = []
+        seen_names = set()
+        base = self._get_heroic_config_path()
+        if not base:
+            return games
+
+        enabled_stores = self.settings.get("heroic_enabled_stores", ["epic", "gog", "amazon"])
+
+        if "amazon" in enabled_stores:
+            nile_lib = os.path.join(base, "nile_config", "nile", "library.json")
+            installed_ids = self._load_heroic_installed_ids(base, "amazon")
+            if os.path.exists(nile_lib):
+                try:
+                    with open(nile_lib) as f:
+                        library = json.load(f)
+                    for entry in library:
+                        product = entry.get("product", {})
+                        detail = product.get("productDetail", {}).get("details", {})
+                        app_name = product.get("id", "")
+                        if not app_name:
+                            continue
+                        appid = self._heroic_appid("amazon", app_name)
+                        title = product.get("title", "")
+                        if self._is_non_game_heroic_entry(title):
+                            continue
+                        name_key = title.strip().lower()
+                        if name_key in seen_names:
+                            continue
+                        seen_names.add(name_key)
+                        games.append(Game(
+                            appid=appid,
+                            name=title or "Unknown",
+                            original_name=product.get("title", ""),
+                            source="amazon",
+                            heroic_app_name=app_name,
+                            is_installed=(app_name in installed_ids),
+                            match_status="pending",
+                        ))
+                except Exception as e:
+                    decky.logger.warning(f"Failed to parse Amazon library: {e}")
+
+        if "epic" in enabled_stores:
+            meta_dir = os.path.join(base, "legendaryConfig", "legendary", "metadata")
+            installed_ids = self._load_heroic_installed_ids(base, "epic")
+            if os.path.isdir(meta_dir):
+                try:
+                    for fname in os.listdir(meta_dir):
+                        if not fname.endswith(".json"):
+                            continue
+                        try:
+                            with open(os.path.join(meta_dir, fname)) as f:
+                                data = json.load(f)
+                        except Exception:
+                            continue
+                        app_name = data.get("app_name", fname.replace(".json", ""))
+                        meta = data.get("metadata", {})
+                        categories = [c.get("path", "") for c in meta.get("categories", [])]
+                        if "games" not in categories and "game" not in [c.lower() for c in categories]:
+                            continue
+                        epic_title = data.get("app_title", "")
+                        if self._is_non_game_heroic_entry(epic_title):
+                            continue
+                        name_key = epic_title.strip().lower()
+                        if name_key in seen_names:
+                            continue
+                        seen_names.add(name_key)
+                        appid = self._heroic_appid("epic", app_name)
+                        games.append(Game(
+                            appid=appid,
+                            name=data.get("app_title", "Unknown"),
+                            original_name=data.get("app_title", ""),
+                            source="epic",
+                            heroic_app_name=app_name,
+                            is_installed=(app_name in installed_ids),
+                            match_status="pending",
+                        ))
+                except Exception as e:
+                    decky.logger.warning(f"Failed to parse Epic library: {e}")
+
+        if "gog" in enabled_stores:
+            gog_cache = os.path.join(base, "store_cache", "gog_library.json")
+            installed_ids = self._load_heroic_installed_ids(base, "gog")
+            if os.path.exists(gog_cache):
+                try:
+                    with open(gog_cache) as f:
+                        cache_data = json.load(f)
+                    for game_entry in cache_data.get("games", []):
+                        app_name = game_entry.get("app_name", "")
+                        if not app_name:
+                            continue
+                        extra = game_entry.get("extra", {})
+                        gog_title = game_entry.get("title", "")
+                        if self._is_non_game_heroic_entry(gog_title):
+                            continue
+                        name_key = gog_title.strip().lower()
+                        if name_key in seen_names:
+                            continue
+                        seen_names.add(name_key)
+                        appid = self._heroic_appid("gog", app_name)
+                        games.append(Game(
+                            appid=appid,
+                            name=game_entry.get("title", "Unknown"),
+                            original_name=game_entry.get("title", ""),
+                            source="gog",
+                            heroic_app_name=app_name,
+                            is_installed=(app_name in installed_ids),
+                            match_status="pending",
+                        ))
+                except Exception as e:
+                    decky.logger.warning(f"Failed to parse GOG library: {e}")
+
+        return games
+
+    async def _sync_heroic_games_inner(self, reset: bool = False, emit_progress: bool = False) -> dict:
+        """Core heroic sync logic shared by all sync paths.
+        If reset=True, removes ALL existing heroic games from cache before scanning (used by dedicated sync button).
+        If reset=False, only detects games not already in cache (used by full_sync, sync_new_games, auto_sync).
+        Returns stats dict."""
+        if not self.settings.get("heroic_import_enabled", False):
+            return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
+        enabled_stores = self.settings.get("heroic_enabled_stores", ["epic", "gog", "amazon"])
+        if not enabled_stores:
+            return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
+
+        existing_heroic_keys = {(g.heroic_app_name, g.source) for g in self.library_cache if g.source in ("epic", "gog", "amazon")}
+
+        # Preserve known matched appids so re-matching doesn't swap them
+        known_heroic_matches: dict[tuple[str, str], int] = {}
+        for g in self.library_cache:
+            if g.source in ("epic", "gog", "amazon") and g.matched_appid:
+                known_heroic_matches[(g.original_name, g.source)] = g.matched_appid
+
+        if reset:
+            self.library_cache = [g for g in self.library_cache if g.source not in ("epic", "gog", "amazon")]
+            self._save_library_cache()
+            existing_heroic_keys = set()
+
+        if emit_progress:
+            self._heroic_sync_progress = {"phase": "detecting", "current": 0, "total": 0, "name": "Detecting Heroic games..."}
+            h_data = {"current": 0, "total": 0, "name": "Detecting Heroic games...", "phase": "detecting", "phase_label": "Detecting Heroic games..."}
+            await decky.emit("suggestme_heroic_sync_progress", h_data)
+            await decky.emit("suggestme_refresh_progress", h_data)
+
+        all_heroic = await self._detect_heroic_games()
+
+        new_detected = [g for g in all_heroic if (g.heroic_app_name, g.source) not in existing_heroic_keys]
+
+        if not new_detected:
+            decky.logger.info("Heroic sync: no new games detected")
+            return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
+
+        existing_non_steam_names = {g.original_name.lower().strip() for g in self.library_cache if g.is_non_steam}
+        existing_steam_appids = {g.appid for g in self.library_cache if not g.is_non_steam}
+        existing_matched_appids = {g.matched_appid for g in self.library_cache if g.matched_appid}
+
+        to_match = []
+        skipped_duplicates = 0
+        for g in new_detected:
+            name_key = g.original_name.lower().strip()
+            if name_key and name_key in existing_non_steam_names:
+                skipped_duplicates += 1
+                continue
+            to_match.append(g)
+
+        matched = []
+        unmatched = []
+        seen_matched_appids = set()
+        batch_size = 30
+
+        if emit_progress:
+            self._heroic_sync_progress = {"phase": "matching", "current": 0, "total": len(to_match), "name": "Matching games to Steam..."}
+
+        for i, game in enumerate(to_match):
+            if emit_progress:
+                h_match_data = {"current": i + 1, "total": len(to_match), "name": game.name, "phase": "matching", "phase_label": f"Matching: {game.name} ({i + 1}/{len(to_match)})"}
+                self._heroic_sync_progress = {"phase": "matching", "current": i + 1, "total": len(to_match), "name": game.name}
+                await decky.emit("suggestme_heroic_sync_progress", h_match_data)
+                await decky.emit("suggestme_refresh_progress", h_match_data)
+
+            matched_appid = None
+            # Prefer known match from previous sync to avoid re-matching to a different appid
+            known_appid = known_heroic_matches.get((game.original_name, game.source))
+            if known_appid and known_appid not in existing_steam_appids and known_appid not in existing_matched_appids and known_appid not in seen_matched_appids:
+                matched_appid = known_appid
+                decky.logger.debug(f"Heroic match: using known appid {matched_appid} for '{game.original_name}'")
+            else:
+                match = await self._search_steam_store(game.original_name, mode="heroic")
+                if match:
+                    matched_appid = match.get("appid")
+
+            if matched_appid:
+                if matched_appid in existing_steam_appids:
+                    skipped_duplicates += 1
+                elif matched_appid in existing_matched_appids:
+                    skipped_duplicates += 1
+                elif matched_appid in seen_matched_appids:
+                    skipped_duplicates += 1
+                else:
+                    game.matched_appid = matched_appid
+                    game.match_status = "matched"
+                    matched.append(game)
+                    seen_matched_appids.add(matched_appid)
+            else:
+                game.match_status = "unmatched"
+                unmatched.append(game)
+            if (i + 1) % batch_size == 0:
+                self._save_sync_progress(i + 1, len(to_match))
+            await asyncio.sleep(0.05)
+
+        decky.logger.info(f"Heroic sync: {len(matched)} new matches, {len(unmatched)} unmatched, {skipped_duplicates} dupes skipped")
+
+        if matched:
+            if emit_progress:
+                self._heroic_sync_progress = {"phase": "metadata", "current": 0, "total": len(matched), "name": f"Fetching metadata for {len(matched)} games..."}
+                h_meta_data = {"current": 0, "total": len(matched), "name": f"Fetching metadata for {len(matched)} games...", "phase": "metadata", "phase_label": f"Fetching metadata for {len(matched)} Heroic games..."}
+                await decky.emit("suggestme_heroic_sync_progress", h_meta_data)
+                await decky.emit("suggestme_refresh_progress", h_meta_data)
+            fetch_batch_size = 10 if emit_progress else 25
+            await self._fetch_game_metadata_batch(matched, batch_size=fetch_batch_size, progress_event="suggestme_heroic_sync_progress" if emit_progress else "suggestme_refresh_progress", progress_phase="metadata")
+            self.library_cache.extend(matched)
+
+        if unmatched:
+            self.library_cache.extend(unmatched)
+            decky.logger.info(f"Heroic sync: added {len(unmatched)} unmatched games to cache for manual review")
+
+        if matched or unmatched:
+            self._save_library_cache()
+
+        self._clear_sync_progress()
+
+        return {
+            "new_scanned": len(to_match),
+            "new_matched": len(matched),
+            "new_discarded": len(to_match) - len(matched),
+            "duplicates_skipped": skipped_duplicates,
+        }
+
+    async def resync_heroic_game(self, original_name: str, new_search_term: str = None) -> dict:
+        """Re-match a Heroic game against Steam Store, optionally with a new search term."""
+        search = (new_search_term or original_name).strip()
+        if not search:
+            return {"success": False, "error": "Search term is empty"}
+
+        target = None
+        for g in self.library_cache:
+            if g.source in ("epic", "gog", "amazon") and g.original_name == original_name:
+                target = g
+                break
+        if not target:
+            return {"success": False, "error": "Game not found"}
+
+        match = await self._search_steam_store(search, mode="heroic")
+        if match:
+            matched_appid = match.get("appid")
+            target.matched_appid = matched_appid
+            target.match_status = "matched"
+            target.name = search
+            await self._fetch_game_metadata_batch([target])
+            self._save_library_cache()
+            return {"success": True, "matched": True, "appid": matched_appid}
+        else:
+            target.match_status = "unmatched"
+            self._save_library_cache()
+            return {"success": True, "matched": False}
+
+    async def remove_heroic_game(self, original_name: str) -> dict:
+        """Remove a single Heroic game from the library cache."""
+        original_len = len(self.library_cache)
+        self.library_cache = [
+            g for g in self.library_cache
+            if not (g.source in ("epic", "gog", "amazon") and g.original_name == original_name)
+        ]
+        if len(self.library_cache) < original_len:
+            self._save_library_cache()
+            return {"success": True}
+        return {"success": False, "error": "Game not found"}
+
+    async def sync_heroic_library(self) -> dict:
+        if self._heroic_syncing or self.is_refreshing:
+            return {"success": False, "error": "Sync already in progress"}
+        self._heroic_syncing = True
+        self.is_refreshing = True
+        await decky.emit("suggestme_library_status_changed", {"is_refreshing": True, "error": None})
+        try:
+            h = await self._sync_heroic_games_inner(reset=True, emit_progress=True)
+            self._heroic_syncing = False
+            self._heroic_sync_progress = None
+            self.is_refreshing = False
+            await self.refresh_heroic_install_status()
+            await decky.emit("suggestme_heroic_sync_complete", {"success": True})
+            await decky.emit("suggestme_library_status_changed", {
+                "is_refreshing": False,
+                "total_games": len(self.library_cache),
+                "last_refresh": self.last_refresh,
+                "error": None,
+            })
+            return {
+                "success": True,
+                "scanned": h["new_scanned"],
+                "matched": h["new_matched"],
+                "discarded": h["new_discarded"],
+                "duplicates_skipped": h["duplicates_skipped"],
+            }
+        except Exception as e:
+            decky.logger.error(f"Heroic sync failed: {e}")
+            self._heroic_syncing = False
+            self._heroic_sync_progress = None
+            self.is_refreshing = False
+            await decky.emit("suggestme_heroic_sync_complete", {"success": False, "error": str(e)})
+            await decky.emit("suggestme_library_status_changed", {"is_refreshing": False, "error": str(e)})
+            return {"success": False, "error": str(e)}
+
+    async def _sync_heroic_library_inner(self) -> dict:
+        raise NotImplementedError("Use _sync_heroic_games_inner with reset=True, emit_progress=True instead")
+
+    async def refresh_heroic_install_status(self) -> dict:
+        base = self._get_heroic_config_path()
+        if not base:
+            return {"success": True, "updated": 0}
+
+        installed_by_store = {}
+        for store in ("epic", "gog", "amazon"):
+            installed_by_store[store] = self._load_heroic_installed_ids(base, store)
+
+        updated = 0
+        for game in self.library_cache:
+            if game.source not in ("epic", "gog", "amazon"):
+                continue
+            store_installed = installed_by_store.get(game.source, set())
+            new_status = game.heroic_app_name in store_installed
+            if game.is_installed != new_status:
+                game.is_installed = new_status
+                updated += 1
+
+        if updated:
+            self._save_library_cache()
+
+        return {"success": True, "updated": updated}
+
+    async def get_heroic_sync_status(self) -> dict:
+        return {
+            "syncing": self._heroic_syncing,
+            "progress": self._heroic_sync_progress,
+        }
+
     def _save_sync_progress(self, current: int, total: int) -> None:
         try:
             progress_file = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "sync_progress.json")
@@ -1580,6 +2198,13 @@ class Plugin:
             game.metacritic_score = cached.metacritic_score
         if cached.metacritic_url:
             game.metacritic_url = cached.metacritic_url
+        if cached.is_non_steam or cached.source in ("epic", "gog", "amazon"):
+            if cached.source:
+                game.source = cached.source
+            if cached.heroic_app_name:
+                game.heroic_app_name = cached.heroic_app_name
+            if not cached.is_installed:
+                game.is_installed = cached.is_installed
 
     def _game_has_metadata(self, game: Game) -> bool:
         """Check if a game already has complete cached metadata (genres AND release_date required)."""
@@ -1587,7 +2212,7 @@ class Plugin:
         has_release = game.release_date is not None and game.release_date > 0
         return has_genres and has_release
 
-    async def _fetch_game_metadata_batch(self, games: list[Game], batch_size: int = 25, start_from: int = 0, skip_if_has_metadata: bool = False) -> None:
+    async def _fetch_game_metadata_batch(self, games: list[Game], batch_size: int = 25, start_from: int = 0, skip_if_has_metadata: bool = False, progress_event: str = "suggestme_refresh_progress", progress_phase: str = "metadata") -> None:
         use_rawg = bool(self.settings.get("rawg_api_key", ""))
         
         if skip_if_has_metadata:
@@ -1605,7 +2230,7 @@ class Plugin:
         
         async def fetch_single(game: Game):
             try:
-                fetch_appid = game.matched_appid if game.is_non_steam and game.matched_appid else game.appid
+                fetch_appid = game.matched_appid if (game.is_non_steam or game.source in ("epic", "gog", "amazon")) and game.matched_appid else game.appid
                 need_rawg = use_rawg and game.metacritic_score == 0
                 
                 details, review_summary, deck_status, protondb, steam_tags = await asyncio.gather(
@@ -1656,39 +2281,61 @@ class Plugin:
             self._save_library_cache()
             
             current_progress = min(i + batch_size, len(games))
-            await decky.emit("suggestme_refresh_progress", {
+            p_data = {
                 "current": current_progress,
                 "total": len(games),
-                "phase": "metadata",
-                "phase_label": "Fetching metadata",
-            })
+                "phase": progress_phase,
+                "phase_label": f"Fetching metadata ({current_progress}/{len(games)})",
+                "name": f"Fetching metadata ({current_progress}/{len(games)})",
+            }
+            await decky.emit(progress_event, p_data)
+            if progress_event == "suggestme_heroic_sync_progress":
+                await decky.emit("suggestme_refresh_progress", p_data)
+                self._heroic_sync_progress = {
+                    "phase": "metadata",
+                    "current": current_progress,
+                    "total": len(games),
+                    "name": f"Fetching metadata ({current_progress}/{len(games)})",
+                }
             self._save_sync_progress(current_progress, len(games))
         
         failed_games = [g for g in games if not self._game_has_metadata(g)]
         if failed_games:
             decky.logger.info(f"Recovery pass: {len(failed_games)} games missing metadata, retrying sequentially...")
-            await decky.emit("suggestme_refresh_progress", {
-                "current": 0,
-                "total": len(failed_games),
-                "phase": "metadata_recovery",
-                "phase_label": f"Recovering metadata for {len(failed_games)} games...",
-            })
+            recovery_label = f"Recovering metadata for {len(failed_games)} games..."
+            rp_start = {"current": 0, "total": len(failed_games), "phase": "metadata_recovery", "phase_label": recovery_label, "name": recovery_label}
+            await decky.emit(progress_event, rp_start)
+            if progress_event == "suggestme_heroic_sync_progress":
+                await decky.emit("suggestme_refresh_progress", rp_start)
+                self._heroic_sync_progress = {
+                    "phase": "metadata_recovery",
+                    "current": 0,
+                    "total": len(failed_games),
+                    "name": recovery_label,
+                }
             
             recovered = 0
-            for i, game in enumerate(failed_games):
-                await fetch_single(game)
-                if self._game_has_metadata(game):
-                    recovered += 1
-                await asyncio.sleep(0.4)
-                
-                if (i + 1) % 10 == 0 or i == len(failed_games) - 1:
-                    self._save_library_cache()
-                    await decky.emit("suggestme_refresh_progress", {
-                        "current": i + 1,
-                        "total": len(failed_games),
+            recovery_batch_size = 5
+            for i in range(0, len(failed_games), recovery_batch_size):
+                batch = failed_games[i:i + recovery_batch_size]
+                await asyncio.gather(*[fetch_single(g) for g in batch])
+                for g in batch:
+                    if self._game_has_metadata(g):
+                        recovered += 1
+                progress_pos = min(i + recovery_batch_size, len(failed_games))
+                self._save_library_cache()
+                current_label = f"Recovering metadata ({progress_pos}/{len(failed_games)})..."
+                rp_data = {"current": progress_pos, "total": len(failed_games), "phase": "metadata_recovery", "phase_label": current_label, "name": current_label}
+                await decky.emit(progress_event, rp_data)
+                if progress_event == "suggestme_heroic_sync_progress":
+                    await decky.emit("suggestme_refresh_progress", rp_data)
+                    self._heroic_sync_progress = {
                         "phase": "metadata_recovery",
-                        "phase_label": f"Recovering metadata ({i + 1}/{len(failed_games)})...",
-                    })
+                        "current": progress_pos,
+                        "total": len(failed_games),
+                        "name": current_label,
+                    }
+                await asyncio.sleep(0.05)
             
             decky.logger.info(f"Recovery pass done: recovered {recovered}/{len(failed_games)} games")
 
@@ -1787,27 +2434,32 @@ class Plugin:
             self._clear_sync_progress()
 
             existing_non_steam = [g for g in self.library_cache if g.is_non_steam]
-            self.library_cache = games + existing_non_steam
+            existing_heroic = [g for g in self.library_cache if g.source in ("epic", "gog", "amazon")]
+            self.library_cache = games + existing_non_steam + existing_heroic
             self.last_refresh = int(time.time())
             self._save_library_cache()
 
             steam_count = len(games)
             non_steam_count = len(existing_non_steam)
+            heroic_count = len([g for g in existing_heroic if g.match_status == "matched"])
             
             self.is_refreshing = False
             await decky.emit("suggestme_library_status_changed", {
                 "is_refreshing": False,
-                "total_games": steam_count + non_steam_count,
+                "total_games": steam_count + non_steam_count + heroic_count,
                 "steam_games_count": steam_count,
                 "non_steam_games_count": non_steam_count,
+                "heroic_games_count": heroic_count,
                 "last_refresh": self.last_refresh,
                 "error": None,
             })
 
             return {
                 "success": True,
-                "total_games": steam_count,
+                "total_games": steam_count + non_steam_count + heroic_count,
                 "steam_count": steam_count,
+                "non_steam_count": non_steam_count,
+                "heroic_count": heroic_count,
                 "last_refresh": self.last_refresh,
             }
 
@@ -1905,11 +2557,28 @@ class Plugin:
         for game in games:
             if game.is_non_steam and game.match_status != "matched":
                 continue
+            if game.source in ("epic", "gog", "amazon") and game.match_status != "matched":
+                continue
+
+            include_sources = filters.get("include_sources")
+            if isinstance(include_sources, list) and include_sources:
+                if game.source in ("epic", "gog", "amazon"):
+                    if game.source not in include_sources:
+                        continue
+                elif game.is_non_steam:
+                    if "non_steam" not in include_sources:
+                        continue
+                else:
+                    if "steam" not in include_sources:
+                        continue
 
             if non_steam_only and not game.is_non_steam:
                 continue
 
             if exclude_non_steam and game.is_non_steam:
+                continue
+
+            if filters.get("exclude_heroic", False) and game.source in ("epic", "gog", "amazon"):
                 continue
 
             if not include_unplayed and game.playtime_forever == 0:
@@ -2107,6 +2776,8 @@ class Plugin:
 
         now = time.time()
         for game in recent_games:
+            if game.source != "steam":
+                continue
             days_ago = (now - (game.rtime_last_played or 0)) / 86400 if game.rtime_last_played else 365
             recency_weight = max(tuning.recency_weight_floor, 1.0 - (days_ago / tuning.recency_decay_days))
             for genre in game.genres:
@@ -2120,8 +2791,10 @@ class Plugin:
                 community_tag_scores[ct] = community_tag_scores.get(ct, 0) + recency_weight * tuning.community_tag_score_weight
 
         if most_played:
-            max_pt = max(g.playtime_forever for g in most_played) if most_played else 1
+            max_pt = max((g.playtime_forever for g in most_played if g.source == "steam"), default=1)
             for game in most_played:
+                if game.source != "steam":
+                    continue
                 pt_weight = (game.playtime_forever / max_pt) * tuning.playtime_weight_multiplier
                 for genre in game.genres:
                     g = genre.lower()
@@ -2133,7 +2806,8 @@ class Plugin:
                     ct = ctag.lower()
                     community_tag_scores[ct] = community_tag_scores.get(ct, 0) + pt_weight * tuning.community_tag_score_weight
 
-        total = (len(recent_games) + len(most_played or [])) or 1
+        steam_count = sum(1 for g in recent_games if g.source == "steam") + sum(1 for g in (most_played or []) if g.source == "steam")
+        total = steam_count or 1
         return {
             "genres": {k: v / total for k, v in genre_scores.items()},
             "tags": {k: v / total for k, v in tag_scores.items()},
@@ -2164,12 +2838,13 @@ class Plugin:
                 base_score = self._apply_rarity_boost(base_score, t, rarity_weights.get("tags", {}), rarity_strength)
             score += base_score
 
-        for ctag in game.community_tags:
-            ct = ctag.lower()
-            base_score = community_tag_profile.get(ct, 0) * tuning.community_tag_score_weight
-            if use_rarity:
-                base_score = self._apply_rarity_boost(base_score, ct, rarity_weights.get("community_tags", {}), rarity_strength)
-            score += base_score
+        if game.source == "steam":
+            for ctag in game.community_tags:
+                ct = ctag.lower()
+                base_score = community_tag_profile.get(ct, 0) * tuning.community_tag_score_weight
+                if use_rarity:
+                    base_score = self._apply_rarity_boost(base_score, ct, rarity_weights.get("community_tags", {}), rarity_strength)
+                score += base_score
 
         if game.playtime_forever == 0:
             score += tuning.unplayed_bonus
@@ -2179,7 +2854,7 @@ class Plugin:
             if days_since > tuning.not_recently_played_days:
                 score += tuning.not_recently_played_bonus
 
-        if game.steam_review_score > 0:
+        if game.source == "steam" and game.steam_review_score > 0:
             normalized_steam = game.steam_review_score / 9.0
             score += normalized_steam * tuning.review_score_weight
 
@@ -2211,13 +2886,14 @@ class Plugin:
                 penalty *= (1.0 - rarity * rarity_strength * 0.5)
             score -= penalty
 
-        for ctag in game.community_tags:
-            ct = ctag.lower()
-            penalty = community_tag_profile.get(ct, 0) * tuning.community_tag_penalty_multiplier
-            if use_rarity:
-                rarity = rarity_weights.get("community_tags", {}).get(ct, 0.5)
-                penalty *= (1.0 - rarity * rarity_strength * 0.5)
-            score -= penalty
+        if game.source == "steam":
+            for ctag in game.community_tags:
+                ct = ctag.lower()
+                penalty = community_tag_profile.get(ct, 0) * tuning.community_tag_penalty_multiplier
+                if use_rarity:
+                    rarity = rarity_weights.get("community_tags", {}).get(ct, 0.5)
+                    penalty *= (1.0 - rarity * rarity_strength * 0.5)
+                score -= penalty
 
         if game.playtime_forever == 0:
             score += tuning.unplayed_bonus
@@ -2227,7 +2903,7 @@ class Plugin:
         novel_genres = game_genres - all_genres
         score += len(novel_genres) * tuning.novel_genre_bonus
 
-        if game.steam_review_score > 0:
+        if game.source == "steam" and game.steam_review_score > 0:
             normalized_steam = game.steam_review_score / 9.0
             score += normalized_steam * tuning.review_score_weight
 
@@ -2612,7 +3288,7 @@ class Plugin:
         unmatched_non_steam = 0
 
         for game in self.library_cache:
-            if game.is_non_steam and game.match_status != "matched":
+            if (game.is_non_steam or game.source in ("epic", "gog", "amazon")) and game.match_status != "matched":
                 unmatched_non_steam += 1
                 continue
             eligible_total += 1
@@ -2809,33 +3485,29 @@ class Plugin:
 
             decky.logger.info("Phase 2: Matching Non-Steam games to Steam store...")
             matched_count = 0
-            unmatched_non_steam = [g for g in non_steam_games if g.match_status == "pending"]
-            already_matched = [g for g in non_steam_games if g.match_status != "pending"]
-            matched_count = sum(1 for g in already_matched if g.matched_appid)
-            
-            if unmatched_non_steam:
-                await decky.emit("suggestme_refresh_progress", {
-                    "current": 0,
-                    "total": len(unmatched_non_steam),
-                    "phase": "non_steam",
-                    "phase_label": f"Matching Non-Steam games (0/{len(unmatched_non_steam)})...",
-                })
-            
-            for i, game in enumerate(unmatched_non_steam):
-                match = await self._search_steam_store(game.original_name)
+
+            await decky.emit("suggestme_refresh_progress", {
+                "current": 0,
+                "total": len(non_steam_games),
+                "phase": "non_steam",
+                "phase_label": f"Matching Non-Steam games (0/{len(non_steam_games)})...",
+            })
+
+            for i, game in enumerate(non_steam_games):
+                match = await self._search_steam_store(game.original_name, mode="strict")
                 if match:
                     game.matched_appid = match.get("appid")
                     game.match_status = "matched"
                     matched_count += 1
                 else:
                     game.match_status = "unmatched"
-                
-                if (i + 1) % 5 == 0 or i == len(unmatched_non_steam) - 1:
+
+                if (i + 1) % 5 == 0 or i == len(non_steam_games) - 1:
                     await decky.emit("suggestme_refresh_progress", {
                         "current": i + 1,
-                        "total": len(unmatched_non_steam),
+                        "total": len(non_steam_games),
                         "phase": "non_steam",
-                        "phase_label": f"Matching Non-Steam games ({i + 1}/{len(unmatched_non_steam)})...",
+                        "phase_label": f"Matching Non-Steam games ({i + 1}/{len(non_steam_games)})...",
                     })
                 await asyncio.sleep(0.05)
 
@@ -2846,22 +3518,35 @@ class Plugin:
             all_games_to_process.extend([g for g in non_steam_games if g.matched_appid])
 
             decky.logger.info(f"Phase 3: Fetching metadata for {len(all_games_to_process)} games...")
-            await self._fetch_game_metadata_batch(all_games_to_process, skip_if_has_metadata=True)
+            await self._fetch_game_metadata_batch(all_games_to_process, skip_if_has_metadata=False)
             self._clear_sync_progress()
 
             self.library_cache = steam_games + non_steam_games
             self.last_refresh = int(time.time())
             self._save_library_cache()
 
+            await decky.emit("suggestme_refresh_progress", {
+                "current": 0,
+                "total": 0,
+                "phase": "heroic",
+                "phase_label": "Syncing Heroic games...",
+            })
+
+            heroic_result = await self._sync_heroic_games_inner(reset=True, emit_progress=True)
+            if heroic_result["new_matched"] > 0:
+                decky.logger.info(f"Heroic sync: added {heroic_result['new_matched']} new games")
+
             steam_count = len(steam_games)
             non_steam_count = len(non_steam_games)
+            heroic_count = len([g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "matched"])
             
             self.is_refreshing = False
             await decky.emit("suggestme_library_status_changed", {
                 "is_refreshing": False,
-                "total_games": steam_count + non_steam_count,
+                "total_games": len(self.library_cache),
                 "steam_games_count": steam_count,
                 "non_steam_games_count": non_steam_count,
+                "heroic_games_count": heroic_count,
                 "last_refresh": self.last_refresh,
                 "error": None,
             })
@@ -2871,7 +3556,9 @@ class Plugin:
                 "steam_count": steam_count,
                 "non_steam_count": non_steam_count,
                 "non_steam_matched": matched_count,
-                "total_games": steam_count + non_steam_count,
+                "heroic_count": heroic_count,
+                "heroic_matched": heroic_result["new_matched"],
+                "total_games": len(self.library_cache),
                 "last_refresh": self.last_refresh,
             }
 
@@ -2952,7 +3639,7 @@ class Plugin:
 
             matched_count = 0
             for i, game in enumerate(new_non_steam_games):
-                match = await self._search_steam_store(game.original_name)
+                match = await self._search_steam_store(game.original_name, mode="strict")
                 if match:
                     game.matched_appid = match.get("appid")
                     game.match_status = "matched"
@@ -2981,15 +3668,19 @@ class Plugin:
             self.last_refresh = int(time.time())
             self._save_library_cache()
 
-            steam_count = len([g for g in self.library_cache if not g.is_non_steam])
+            heroic_result = await self._sync_heroic_games_inner(reset=False, emit_progress=True)
+
+            steam_count = len([g for g in self.library_cache if not g.is_non_steam and g.source == "steam"])
             non_steam_count = len([g for g in self.library_cache if g.is_non_steam])
+            heroic_count = len([g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "matched"])
 
             self.is_refreshing = False
             await decky.emit("suggestme_library_status_changed", {
                 "is_refreshing": False,
-                "total_games": steam_count + non_steam_count,
+                "total_games": len(self.library_cache),
                 "steam_games_count": steam_count,
                 "non_steam_games_count": non_steam_count,
+                "heroic_games_count": heroic_count,
                 "last_refresh": self.last_refresh,
                 "error": None,
             })
@@ -2999,7 +3690,8 @@ class Plugin:
                 "new_steam_count": len(new_steam_games),
                 "new_non_steam_count": len(new_non_steam_games),
                 "new_non_steam_matched": matched_count,
-                "total_games": steam_count + non_steam_count,
+                "new_heroic_matched": heroic_result["new_matched"],
+                "total_games": len(self.library_cache),
                 "last_refresh": self.last_refresh,
             }
 
@@ -3057,7 +3749,7 @@ class Plugin:
                     match_status="pending"
                 )
                 
-                match = await self._search_steam_store(name)
+                match = await self._search_steam_store(name, mode="strict")
                 if match:
                     matched_appid = match.get("appid")
                     game.matched_appid = matched_appid
@@ -3118,7 +3810,7 @@ class Plugin:
     async def resync_non_steam_game(self, original_name: str) -> dict:
         for game in self.library_cache:
             if game.is_non_steam and game.original_name == original_name:
-                match = await self._search_steam_store(original_name)
+                match = await self._search_steam_store(original_name, mode="strict")
                 if match:
                     game.matched_appid = match.get("appid")
                     game.match_status = "matched"
@@ -3179,9 +3871,10 @@ class Plugin:
     async def update_non_steam_search_term(self, original_name: str, new_search_term: str) -> dict:
         for game in self.library_cache:
             if game.is_non_steam and game.original_name == original_name:
-                match = await self._search_steam_store(new_search_term)
+                match = await self._search_steam_store(new_search_term, mode="strict")
                 if match:
-                    game.matched_appid = match.get("appid")
+                    matched_appid = match.get("appid")
+                    game.matched_appid = matched_appid
                     game.match_status = "matched"
                     game.name = new_search_term
                     
@@ -3351,7 +4044,7 @@ class Plugin:
             else:
                 score += (len(shared_tags) / max(union, 1)) * tuning.tag_weight
 
-        if ref_ctags or cand_ctags:
+        if reference.source == "steam" and candidate.source == "steam" and (ref_ctags or cand_ctags):
             shared_ctags = ref_ctags & cand_ctags
             union = len(ref_ctags | cand_ctags)
             if use_rarity and shared_ctags:
@@ -3361,7 +4054,7 @@ class Plugin:
             else:
                 score += (len(shared_ctags) / max(union, 1)) * tuning.community_tag_weight
 
-        if reference.steam_review_score > 0 and candidate.steam_review_score > 0:
+        if reference.source == "steam" and candidate.source == "steam" and reference.steam_review_score > 0 and candidate.steam_review_score > 0:
             diff = abs(reference.steam_review_score - candidate.steam_review_score)
             proximity = 1.0 - (diff / 9.0)
             score += proximity * tuning.review_proximity_weight
@@ -3633,15 +4326,9 @@ class Plugin:
                     )
                     new_non_steam_games.append(game)
 
-            if not new_steam_games and not new_non_steam_games:
-                decky.logger.info("Auto-sync: No new games found")
-                return {"success": True, "new_games": 0, "silent": True}
-
-            decky.logger.info(f"Auto-sync: Found {len(new_steam_games)} new Steam games and {len(new_non_steam_games)} new Non-Steam games")
-
             # 3. Match new Non-Steam games against Steam store
             for i, game in enumerate(new_non_steam_games):
-                match = await self._search_steam_store(game.original_name)
+                match = await self._search_steam_store(game.original_name, mode="strict")
                 if match:
                     game.matched_appid = match.get("appid")
                     game.match_status = "matched"
@@ -3657,28 +4344,33 @@ class Plugin:
             if all_new_games:
                 await self._fetch_game_metadata_batch(all_new_games)
             
-            # 5. Save and emit
+            # 5. Save Steam and Non-Steam
             self.library_cache.extend(new_steam_games)
             self.library_cache.extend(new_non_steam_games)
             self.last_refresh = int(time.time())
             self._save_library_cache()
 
-            steam_count = len([g for g in self.library_cache if not g.is_non_steam])
+            # 6. Sync new Heroic games
+            heroic_result = await self._sync_heroic_games_inner(reset=False, emit_progress=False)
+
+            steam_count = len([g for g in self.library_cache if not g.is_non_steam and g.source == "steam"])
             non_steam_count = len([g for g in self.library_cache if g.is_non_steam])
+            heroic_count = len([g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "matched"])
 
             await decky.emit("suggestme_library_status_changed", {
-                "total_games": steam_count + non_steam_count,
+                "total_games": len(self.library_cache),
                 "steam_games_count": steam_count,
                 "non_steam_games_count": non_steam_count,
+                "heroic_games_count": heroic_count,
                 "last_refresh": self.last_refresh,
             })
 
-            total_new = len(new_steam_games) + len(new_non_steam_games)
+            total_new = len(new_steam_games) + len([g for g in new_non_steam_games if g.matched_appid]) + heroic_result["new_matched"]
             return {
                 "success": True,
                 "new_games": total_new,
-                "silent": False,
-                "total_games": steam_count + non_steam_count,
+                "silent": total_new == 0,
+                "total_games": len(self.library_cache),
             }
         except Exception as e:
             decky.logger.error(f"Auto-sync failed: {e}")

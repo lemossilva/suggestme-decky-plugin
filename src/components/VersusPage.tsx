@@ -520,10 +520,13 @@ export function VersusPage() {
         Navigation.NavigateBack();
     };
 
+    const championIsHeroic = champion && (champion.source === "epic" || champion.source === "gog" || champion.source === "amazon");
+
     const handleLaunchGame = () => {
         if (champion) {
+            const appid = champion.matched_appid || champion.appid;
             Navigation.NavigateToLibraryTab();
-            Navigation.Navigate(`/library/app/${champion.appid}`);
+            Navigation.Navigate(`/library/app/${appid}`);
         }
     };
 
@@ -929,12 +932,13 @@ export function VersusPage() {
                         }}
                     >
                         <Focusable
-                            onActivate={handleLaunchGame}
+                            onActivate={championIsHeroic ? () => {} : handleLaunchGame}
                             style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 gap: 8, padding: "10px 12px",
                                 backgroundColor: "#4488aa", borderRadius: 8,
-                                border: "2px solid transparent", cursor: "pointer",
+                                border: "2px solid transparent", cursor: championIsHeroic ? "default" : "pointer",
+                                opacity: championIsHeroic ? 0.3 : 1,
                             }}
                             onFocus={(e: any) => (e.target.style.borderColor = "white")}
                             onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
@@ -943,12 +947,11 @@ export function VersusPage() {
                             <span style={{ fontSize: 12, color: "#fff", fontWeight: 600 }}>View Game</span>
                         </Focusable>
 
-                        {((!champion.is_non_steam) || (champion.is_non_steam && champion.matched_appid)) && (
+                        {((champion.source === "steam" && !champion.is_non_steam) || !!champion.matched_appid) && (
                             <Focusable
                                 onActivate={() => {
-                                    const storeAppId = champion.is_non_steam && champion.matched_appid
-                                        ? champion.matched_appid : champion.appid;
-                                    window.open(`steam://store/${storeAppId}`, "_blank");
+                                    const storeAppId = champion.matched_appid || champion.appid;
+                                    window.open(`steam://store/${storeAppId}`);
                                 }}
                                 style={{
                                     display: "flex", alignItems: "center", justifyContent: "center",

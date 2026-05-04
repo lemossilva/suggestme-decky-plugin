@@ -285,9 +285,11 @@ export function SpinWheelPage() {
         await loadCandidates(false);
     };
 
+    const winnerIsHeroic = payload?.winner && (payload.winner.source === "epic" || payload.winner.source === "gog" || payload.winner.source === "amazon");
+
     const handleLaunchGame = () => {
         if (payload?.winner) {
-            const appid = payload.winner.appid;
+            const appid = payload.winner.matched_appid || payload.winner.appid;
             Navigation.NavigateToLibraryTab();
             Navigation.Navigate(`/library/app/${appid}`);
         }
@@ -373,7 +375,7 @@ export function SpinWheelPage() {
         const gradientStops: string[] = [];
         for (let i = 0; i < totalSlices; i++) {
             const game = payload.candidates[i];
-            const effectiveAppId = game.is_non_steam && game.matched_appid ? game.matched_appid : game.appid;
+            const effectiveAppId = game.matched_appid || game.appid;
             const bannerColor = bannerColors.get(effectiveAppId)?.[0];
             const color = bannerColor || SLICE_COLORS[i % SLICE_COLORS.length];
             gradientStops.push(`${color} ${i * sliceAngle}deg ${(i + 1) * sliceAngle}deg`);
@@ -696,12 +698,13 @@ export function SpinWheelPage() {
                                     style={{ display: "flex", gap: s(8), marginTop: s(4) }}
                                 >
                                     <Focusable
-                                        onActivate={handleLaunchGame}
+                                        onActivate={winnerIsHeroic ? () => {} : handleLaunchGame}
                                         style={{
                                             flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
                                             gap: s(6), padding: `${s(10)}px ${s(8)}px`,
                                             backgroundColor: "#4488aa", borderRadius: s(6),
-                                            border: "2px solid transparent", cursor: "pointer",
+                                            border: "2px solid transparent", cursor: winnerIsHeroic ? "default" : "pointer",
+                                            opacity: winnerIsHeroic ? 0.3 : 1,
                                         }}
                                         onFocus={(e: any) => (e.target.style.borderColor = "white")}
                                         onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
@@ -710,13 +713,11 @@ export function SpinWheelPage() {
                                         <span style={{ fontSize: s(11), color: "#fff", whiteSpace: "nowrap" }}>View Game</span>
                                     </Focusable>
 
-                                    {((!payload.winner.is_non_steam) || (payload.winner.is_non_steam && payload.winner.matched_appid)) && (
+                                    {((payload.winner.source === "steam" && !payload.winner.is_non_steam) || !!payload.winner.matched_appid) && (
                                         <Focusable
                                             onActivate={() => {
-                                                const storeAppId = payload.winner!.is_non_steam && payload.winner!.matched_appid
-                                                    ? payload.winner!.matched_appid
-                                                    : payload.winner!.appid;
-                                                window.open(`steam://store/${storeAppId}`, "_blank");
+                                                const storeAppId = payload.winner!.matched_appid || payload.winner!.appid;
+                                                window.open(`steam://store/${storeAppId}`);
                                             }}
                                             style={{
                                                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",

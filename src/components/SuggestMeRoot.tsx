@@ -333,7 +333,7 @@ export function SuggestMeRoot() {
 
   const handleLaunch = () => {
     if (currentModeSuggestion?.game) {
-      const appid = currentModeSuggestion.game.appid;
+      const appid = currentModeSuggestion.game.matched_appid || currentModeSuggestion.game.appid;
       Navigation.NavigateToLibraryTab();
       Navigation.Navigate(`/library/app/${appid}`);
     }
@@ -471,7 +471,7 @@ export function SuggestMeRoot() {
           >
             <FaGamepad size={12} style={{ color: (nonSteamInfo?.total || 0) > 0 ? '#aa8866' : '#666666' }} />
             <span style={{ fontSize: 10, color: (nonSteamInfo?.total || 0) > 0 ? '#aa8866' : '#666666', fontWeight: 500 }}>
-              {nonSteamInfo?.matched || 0}
+              {(nonSteamInfo?.matched || 0) + (status.heroic_games_count || 0)}
             </span>
           </Focusable>
 
@@ -1140,9 +1140,10 @@ export function SuggestMeRoot() {
                     }}
                   >
                     <Focusable
-                      onActivate={() => {
+                      onActivate={entry.source === "epic" || entry.source === "gog" || entry.source === "amazon" ? () => {} : () => {
+                        const appid = entry.matched_appid || entry.appid;
                         Navigation.NavigateToLibraryTab();
-                        Navigation.Navigate(`/library/app/${entry.appid}`);
+                        Navigation.Navigate(`/library/app/${appid}`);
                       }}
                       style={{
                         flex: 1,

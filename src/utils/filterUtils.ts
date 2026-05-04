@@ -17,6 +17,12 @@ export function getFilterSummary(filters: SuggestFilters): string {
     
     if (filters.non_steam_only) parts.push('Non-Steam only');
     if (filters.exclude_non_steam) parts.push('Steam only');
+    const sources = filters.include_sources;
+    if (sources && sources.length < 5) {
+        const labels: Record<string, string> = { steam: "Steam", non_steam: "NS", epic: "Epic", gog: "GOG", amazon: "Amazon" };
+        const included = sources.map(s => labels[s] || s);
+        parts.push(included.join("+"));
+    }
     if (filters.include_unplayed && filters.max_playtime === 0) {
         parts.push('Not played yet');
     } else {
@@ -76,6 +82,7 @@ export function hasActiveFilters(filters: SuggestFilters): boolean {
         filters.purchase_date_before !== undefined ||
         !!filters.title_regex ||
         filters.min_size_mb !== undefined ||
-        filters.max_size_mb !== undefined
+        filters.max_size_mb !== undefined ||
+        (filters.include_sources && filters.include_sources.length < 5) === true
     );
 }

@@ -4,7 +4,7 @@ import {
     PanelSection,
     PanelSectionRow,
 } from "@decky/ui";
-import { routerHook, call } from "@decky/api";
+import { call } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FaTrash, FaChevronRight, FaHistory, FaStore, FaFilter, FaListUl, FaBan, FaTrophy, FaSearch } from "react-icons/fa";
 import { HistoryEntry, SuggestMode, MODE_LABELS, SuggestFilters, filtersEqual, Game } from "../types";
@@ -41,8 +41,9 @@ const HistoryItem = ({
     const [focused, setFocused] = useState(false);
     const [confirmingExclude, setConfirmingExclude] = useState(false);
     const [justAdded, setJustAdded] = useState(false);
-    const effectiveAppId = entry.is_non_steam && entry.matched_appid ? entry.matched_appid : entry.appid;
-    const canShowStore = !entry.is_non_steam || (entry.is_non_steam && entry.matched_appid);
+    const isHeroic = entry.source === "epic" || entry.source === "gog" || entry.source === "amazon";
+    const effectiveAppId = entry.matched_appid || entry.appid;
+    const canShowStore = !entry.is_non_steam || !!entry.matched_appid;
 
     const formatDate = (timestamp: number) => {
         const date = new Date(timestamp * 1000);
@@ -132,9 +133,9 @@ const HistoryItem = ({
         >
             {/* Left: Thumbnail + Game Info (clickable to navigate) */}
             <Focusable
-                onActivate={() => {
+                onActivate={isHeroic ? () => {} : () => {
                     Navigation.NavigateToLibraryTab();
-                    Navigation.Navigate(`/library/app/${entry.appid}`);
+                    Navigation.Navigate(`/library/app/${effectiveAppId}`);
                 }}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
@@ -175,6 +176,7 @@ const HistoryItem = ({
                     }}>
                         {entry.name}
                         {entry.is_non_steam && <span style={{ fontSize: 7, color: '#6688aa', marginLeft: 3 }}>(NS)</span>}
+                        {isHeroic && <span style={{ fontSize: 7, color: '#66aa88', marginLeft: 3 }}>(H)</span>}
                     </div>
                     <div style={{ fontSize: 8, color: '#888', marginTop: 1 }}>
                         {formatDate(entry.timestamp)} • {MODE_LABELS[entry.mode as SuggestMode] || entry.mode}
@@ -523,14 +525,6 @@ export const HistoryPage = () => {
         </div>
     );
 };
-
-export function registerHistoryRoute() {
-    routerHook.addRoute(HISTORY_ROUTE, () => <HistoryPage />);
-}
-
-export function unregisterHistoryRoute() {
-    routerHook.removeRoute(HISTORY_ROUTE);
-}
 
 export const navigateToHistory = (props?: { initialMode?: SuggestMode }) => {
     Navigation.CloseSideMenus();

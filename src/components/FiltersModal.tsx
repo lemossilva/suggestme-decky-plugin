@@ -9,11 +9,11 @@ import {
     TextField,
     ToggleField,
 } from "@decky/ui";
-import { routerHook } from "@decky/api";
 import { useState } from "react";
 import { FaTags, FaGamepad, FaClock, FaCheck, FaTimes, FaSteam, FaFolder, FaExchangeAlt, FaUsers, FaSave, FaEdit, FaTrash, FaStar, FaHdd, FaCopy, FaExclamationTriangle, FaSlidersH, FaEye } from "react-icons/fa";
 import { SuggestFilters, DEFAULT_FILTERS } from "../types";
 import { useFilterPresets } from "../hooks/useFilterPresets";
+import { useSuggestMeConfig } from "../hooks/useSuggestMeConfig";
 import { DatePicker } from "./DatePicker";
 import { navigateToFilterPool } from "./LibraryBrowser";
 import { openModalWithQAMReturn } from "../utils/navigation";
@@ -255,25 +255,77 @@ const MultiSelectChips = ({
     );
 };
 
-const GameSourcePage = ({ filters, setFilters }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void }) => (
+const GameSourcePage = ({ filters, setFilters }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void }) => {
+    const { config } = useSuggestMeConfig();
+    const heroicEnabled = config.heroic_import_enabled ?? false;
+    const sources = filters.include_sources;
+
+    const ALL_SOURCES = ["steam", "non_steam", "epic", "gog", "amazon"];
+
+    const toggleSource = (source: string, val: boolean) => {
+        const current = sources ? [...sources] : [...ALL_SOURCES];
+        if (val && !current.includes(source)) {
+            current.push(source);
+        } else if (!val) {
+            const idx = current.indexOf(source);
+            if (idx !== -1) current.splice(idx, 1);
+        }
+        const allIncluded = ALL_SOURCES.every(s => current.includes(s));
+        setFilters({ ...filters, include_sources: allIncluded ? undefined : current });
+    };
+
+    const has = (source: string) => !sources || sources.includes(source);
+
+    return (
     <div style={{ padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
-        <PanelSection title="Game Source">
+        <PanelSection title="Include Sources">
             <PanelSectionRow>
                 <ToggleField
-                    label="Non-Steam games only"
-                    description="Only suggest non-Steam games"
-                    checked={filters.non_steam_only}
-                    onChange={(v) => setFilters({ ...filters, non_steam_only: v, exclude_non_steam: v ? false : filters.exclude_non_steam })}
+                    label="Steam games"
+                    description="Games from your Steam library"
+                    checked={has("steam")}
+                    onChange={(v) => toggleSource("steam", v)}
                 />
             </PanelSectionRow>
             <PanelSectionRow>
                 <ToggleField
-                    label="Exclude non-Steam games"
-                    description="Only suggest Steam games"
-                    checked={filters.exclude_non_steam}
-                    onChange={(v) => setFilters({ ...filters, exclude_non_steam: v, non_steam_only: v ? false : filters.non_steam_only })}
+                    label="Non-Steam games"
+                    description="Games added manually to Steam"
+                    checked={has("non_steam")}
+                    onChange={(v) => toggleSource("non_steam", v)}
                 />
             </PanelSectionRow>
+            {heroicEnabled && (
+              <>
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Epic Games"
+                        description="Games imported from Epic Games via Heroic"
+                        checked={has("epic")}
+                        onChange={(v) => toggleSource("epic", v)}
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <ToggleField
+                        label="GOG"
+                        description="Games imported from GOG via Heroic"
+                        checked={has("gog")}
+                        onChange={(v) => toggleSource("gog", v)}
+                    />
+                </PanelSectionRow>
+                <PanelSectionRow>
+                    <ToggleField
+                        label="Amazon Prime"
+                        description="Games imported from Amazon Prime via Heroic"
+                        checked={has("amazon")}
+                        onChange={(v) => toggleSource("amazon", v)}
+                    />
+                </PanelSectionRow>
+              </>
+            )}
+        </PanelSection>
+
+        <PanelSection title="Install Status">
             <PanelSectionRow>
                 <ToggleField
                     label="Installed only"
@@ -292,7 +344,8 @@ const GameSourcePage = ({ filters, setFilters }: { filters: SuggestFilters; setF
             </PanelSectionRow>
         </PanelSection>
     </div>
-);
+    );
+};
 
 const PlaytimePage = ({ filters, setFilters }: { filters: SuggestFilters; setFilters: (f: SuggestFilters) => void }) => (
     <div style={{ padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
@@ -1420,6 +1473,8 @@ export const FiltersPage = () => {
         if (localFilters.exclude_non_steam) count++;
         if (localFilters.installed_only) count++;
         if (localFilters.not_installed_only) count++;
+        const sources = localFilters.include_sources;
+        if (sources && sources.length < 5) count++;
         return count;
     };
 
@@ -1598,14 +1653,6 @@ export const FiltersPage = () => {
         </div>
     );
 };
-
-export function registerFiltersRoute() {
-    routerHook.addRoute(FILTERS_ROUTE, () => <FiltersPage />);
-}
-
-export function unregisterFiltersRoute() {
-    routerHook.removeRoute(FILTERS_ROUTE);
-}
 
 export function navigateToFilters(props: FiltersModalProps) {
     currentFiltersProps = props;

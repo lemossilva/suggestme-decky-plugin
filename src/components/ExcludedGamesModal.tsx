@@ -6,7 +6,7 @@ import {
     PanelSectionRow,
     Spinner,
 } from "@decky/ui";
-import { routerHook, call, toaster } from "@decky/api";
+import { call, toaster } from "@decky/api";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { FaBan, FaTrash, FaSync, FaChevronRight, FaCheck } from "react-icons/fa";
 import { ExcludedGame } from "../types";
@@ -44,16 +44,18 @@ function useContainerScale(containerRef: React.RefObject<HTMLDivElement>) {
 
 export const EXCLUDED_GAMES_ROUTE = '/suggestme/excluded';
 
-const GameItem = ({ 
-    game, 
+const GameItem = ({
+    game,
     onRemove,
     isRemoving
-}: { 
-    game: ExcludedGame; 
+}: {
+    game: ExcludedGame;
     onRemove: () => void;
     isRemoving: boolean;
 }) => {
     const [focused, setFocused] = useState(false);
+    const isHeroic = game.source === "epic" || game.source === "gog" || game.source === "amazon";
+    const storeAppId = game.matched_appid || game.appid;
 
     return (
         <Focusable
@@ -66,9 +68,9 @@ const GameItem = ({
             }}
         >
             <Focusable
-                onActivate={() => {
+                onActivate={isHeroic ? () => {} : () => {
                     Navigation.NavigateToLibraryTab();
-                    Navigation.Navigate(`/library/app/${game.appid}`);
+                    Navigation.Navigate(`/library/app/${storeAppId}`);
                 }}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
@@ -107,6 +109,9 @@ const GameItem = ({
                         {game.name}
                         {game.is_non_steam && (
                             <span style={{ fontSize: 9, color: '#6688aa' }}>(Non-Steam)</span>
+                        )}
+                        {isHeroic && (
+                            <span style={{ fontSize: 9, color: '#66aa88' }}>(Heroic)</span>
                         )}
                     </div>
                     <div style={{ fontSize: 10, color: '#888' }}>
@@ -457,14 +462,6 @@ export const ExcludedGamesPage = () => {
         </div>
     );
 };
-
-export function registerExcludedGamesRoute() {
-    routerHook.addRoute(EXCLUDED_GAMES_ROUTE, () => <ExcludedGamesPage />);
-}
-
-export function unregisterExcludedGamesRoute() {
-    routerHook.removeRoute(EXCLUDED_GAMES_ROUTE);
-}
 
 export function navigateToExcludedGames() {
     Navigation.CloseSideMenus();

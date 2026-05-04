@@ -21,6 +21,9 @@ export interface Game {
   steam_review_description: string;
   metacritic_score: number;
   metacritic_url: string;
+  source: 'steam' | 'epic' | 'gog' | 'amazon';
+  heroic_app_name: string;
+  is_installed: boolean;
 }
 
 export interface NonSteamGamesInfo {
@@ -46,6 +49,9 @@ export interface SuggestFilters {
   include_unplayed: boolean;
   non_steam_only: boolean;
   exclude_non_steam: boolean;
+  exclude_heroic?: boolean;
+  include_heroic_sources?: string[];
+  include_sources?: string[];
   deck_status: string[];
   protondb_tier: string[];
   include_collections: string[];
@@ -88,6 +94,9 @@ export interface SuggestMeConfig {
   auto_sync_excluded_collection?: boolean;
   auto_sync_new_games?: boolean;
   spin_wheel_banner_colors?: boolean;
+  heroic_import_enabled?: boolean;
+  heroic_enabled_stores?: string[];
+  heroic_custom_path?: string;
 }
 
 export interface Credentials {
@@ -110,6 +119,7 @@ export interface LibraryStatus {
   total_games: number;
   steam_games_count: number;
   non_steam_games_count: number;
+  heroic_games_count?: number;
   is_refreshing: boolean;
   error?: string;
   sync_progress?: { current: number; total: number } | null;
@@ -122,6 +132,7 @@ export interface HistoryEntry {
   mode: SuggestMode;
   is_non_steam?: boolean;
   matched_appid?: number;
+  source?: string;
   filters?: SuggestFilters;
   preset_name?: string;
   extra_data?: Record<string, any>;
@@ -131,7 +142,7 @@ export interface HistoryEntry {
 export interface RefreshProgress {
   current: number;
   total: number;
-  phase?: "fetch_list" | "processing" | "metadata" | "non_steam";
+  phase?: "fetch_list" | "processing" | "metadata" | "non_steam" | "heroic" | "metadata_recovery";
   phase_label?: string;
 }
 
@@ -149,6 +160,8 @@ export const DEFAULT_FILTERS: SuggestFilters = {
   include_unplayed: true,
   non_steam_only: false,
   exclude_non_steam: false,
+  exclude_heroic: false,
+  include_heroic_sources: undefined,
   deck_status: [],
   protondb_tier: [],
   include_collections: [],
@@ -184,6 +197,7 @@ export interface PlayNextEntry {
   name: string;
   is_non_steam: boolean;
   matched_appid?: number;
+  source?: string;
   playtime_forever: number;
   added_at: number;
 }
@@ -193,6 +207,7 @@ export interface ExcludedGame {
   name: string;
   is_non_steam: boolean;
   matched_appid?: number;
+  source?: string;
   playtime_forever: number;
   deck_status: string;
   excluded_at: number;
@@ -363,6 +378,9 @@ export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {
     na.include_unplayed === nb.include_unplayed &&
     na.non_steam_only === nb.non_steam_only &&
     na.exclude_non_steam === nb.exclude_non_steam &&
+    na.exclude_heroic === nb.exclude_heroic &&
+    arraysEqual(na.include_heroic_sources ?? [], nb.include_heroic_sources ?? []) &&
+    arraysEqual(na.include_sources ?? [], nb.include_sources ?? []) &&
     na.min_steam_review_score === nb.min_steam_review_score &&
     na.min_metacritic_score === nb.min_metacritic_score &&
     na.include_games_without_reviews === nb.include_games_without_reviews &&
@@ -378,3 +396,49 @@ export function filtersEqual(a: SuggestFilters, b: SuggestFilters): boolean {
     na.max_size_mb === nb.max_size_mb
   );
 }
+
+export interface HeroicDetectResult {
+  found: boolean;
+  path?: string;
+  stores: string[];
+}
+
+export interface HeroicSyncResult {
+  success: boolean;
+  scanned?: number;
+  matched?: number;
+  discarded?: number;
+  duplicates_skipped?: number;
+  error?: string;
+}
+
+export interface HeroicInstallStatusResult {
+  success: boolean;
+  updated: number;
+}
+
+export interface HeroicSyncProgress {
+  current: number;
+  total: number;
+  name: string;
+  phase?: 'detecting' | 'matching' | 'metadata' | 'metadata_recovery';
+}
+
+export interface HeroicSyncStatus {
+  syncing: boolean;
+  progress: HeroicSyncProgress | null;
+}
+
+export type HeroicSource = 'steam' | 'epic' | 'gog' | 'amazon';
+
+export const HEROIC_STORE_LABELS: Record<string, string> = {
+  epic: 'Epic Games',
+  gog: 'GOG',
+  amazon: 'Amazon Prime',
+};
+
+export const HEROIC_STORE_COLORS: Record<string, string> = {
+  epic: '#ff8c00',
+  gog: '#aa88ff',
+  amazon: '#00aaff',
+};
