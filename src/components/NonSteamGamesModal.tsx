@@ -14,7 +14,7 @@ import {
     removeEventListener,
     toaster,
 } from "@decky/api";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import {
     FaGamepad,
     FaCheck,
@@ -46,7 +46,7 @@ export const HEROIC_ROUTE = "/suggestme/heroic-games";
 
 type TabId = "nonsteam" | "heroic";
 
-const NonSteamGameItem = ({
+const NonSteamGameItem = memo(function NonSteamGameItem({
     game,
     onResync,
     onRemove,
@@ -58,7 +58,7 @@ const NonSteamGameItem = ({
     onRemove: () => void;
     onUpdateSearchTerm: (newTerm: string) => Promise<void>;
     isSyncing: boolean;
-}) => {
+}) {
     const [focused, setFocused] = useState(false);
     const [editing, setEditing] = useState(false);
     const [editValue, setEditValue] = useState(game.name || game.original_name);
@@ -283,9 +283,13 @@ const NonSteamGameItem = ({
             </Focusable>
         </Focusable>
     );
-};
+}, (prev, next) =>
+    prev.game.original_name === next.game.original_name &&
+    prev.game.match_status === next.game.match_status &&
+    prev.game.matched_appid === next.game.matched_appid &&
+    prev.isSyncing === next.isSyncing);
 
-const HeroicGameItem = ({
+const HeroicGameItem = memo(function HeroicGameItem({
     game,
     onResync,
     onRemove,
@@ -295,7 +299,7 @@ const HeroicGameItem = ({
     onResync?: (newTerm: string) => void;
     onRemove?: () => void;
     isSyncing?: boolean;
-}) => {
+}) {
     const isMatched = game.match_status === "matched";
     const [editing, setEditing] = useState(false);
     const [editValue, setEditValue] = useState(game.name || game.original_name);
@@ -566,7 +570,11 @@ const HeroicGameItem = ({
             )}
         </Focusable>
     );
-};
+}, (prev, next) =>
+    prev.game.original_name === next.game.original_name &&
+    prev.game.match_status === next.game.match_status &&
+    prev.game.matched_appid === next.game.matched_appid &&
+    prev.isSyncing === next.isSyncing);
 
 export const ExternalGamesPage = ({
     initialTab = "nonsteam" as TabId,

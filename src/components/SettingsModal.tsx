@@ -24,6 +24,7 @@ import {
     FaLock,
     FaCheck,
     FaExclamationTriangle,
+    FaRedo,
     FaGamepad,
     FaChevronRight,
     FaTrash,
@@ -1109,6 +1110,8 @@ const LibraryPage = () => {
         null,
     );
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isRetryingHeroic, setIsRetryingHeroic] = useState(false);
+    const [isRetryingNonSteam, setIsRetryingNonSteam] = useState(false);
 
     useEffect(() => {
         const loadNonSteamInfo = async () => {
@@ -1133,7 +1136,11 @@ const LibraryPage = () => {
                     steam_count?: number;
                     non_steam_count?: number;
                     non_steam_matched?: number;
+                    non_steam_unmatched?: number;
                     heroic_matched?: number;
+                    heroic_unmatched?: number;
+                    heroic_retry_recovered?: number;
+                    non_steam_retry_recovered?: number;
                     total_games?: number;
                     error?: string;
                 }
@@ -1143,17 +1150,30 @@ const LibraryPage = () => {
                 const steamCount = result.steam_count || 0;
                 const nonSteamCount = result.non_steam_count || 0;
                 const nonSteamMatched = result.non_steam_matched || 0;
+                const nonSteamUnmatched = result.non_steam_unmatched || 0;
                 const heroicMatched = result.heroic_matched || 0;
+                const heroicUnmatched = result.heroic_unmatched || 0;
 
                 const updatedInfo = await call<[], NonSteamGamesInfo>(
                     "get_non_steam_games",
                 );
                 setNonSteamInfo(updatedInfo);
 
+                const parts = [`Steam: ${steamCount}`];
+                if (nonSteamCount > 0) {
+                    parts.push(`Non-Steam: ${nonSteamMatched} matched`);
+                    if (nonSteamUnmatched > 0) parts.push(`${nonSteamUnmatched} unmatched`);
+                }
+                if (heroicMatched > 0 || heroicUnmatched > 0) {
+                    parts.push(`Heroic: ${heroicMatched} matched`);
+                    if (heroicUnmatched > 0) parts.push(`${heroicUnmatched} unmatched`);
+                }
+                const unmatchedTotal = nonSteamUnmatched + heroicUnmatched;
+                const retryHint = unmatchedTotal > 0 ? ` • ${unmatchedTotal} games need re-matching — use Retry below` : "";
                 toaster.toast({
                     title: "SuggestMe • Sync Complete",
-                    body: `Steam: ${steamCount} • Non-Steam: ${nonSteamCount} (${nonSteamMatched} matched)${heroicMatched > 0 ? ` • Heroic: ${heroicMatched}` : ""}`,
-                    duration: 4000,
+                    body: parts.join(" • ") + retryHint,
+                    duration: 5000,
                 });
             } else {
                 toaster.toast({
@@ -1175,9 +1195,99 @@ const LibraryPage = () => {
         reload();
     };
 
+    const handleRetryUnmatchedHeroic = async () => {
+        setIsRetryingHeroic(true);
+        try {
+            const result = await call<[], {
+                success: boolean;
+                retried?: number;
+                newly_matched?: number;
+                still_unmatched?: number;
+                message?: string;
+                error?: string;
+            }>("retry_unmatched_heroic");
+
+            if (result?.success) {
+                toaster.toast({
+                    title: "SuggestMe • Heroic Retry Complete",
+                    body: `${result.newly_matched || 0} newly matched • ${result.still_unmatched || 0} still unmatched`,
+                    duration: 4000,
+                });
+            } else if (result?.message) {
+                toaster.toast({
+                    title: "SuggestMe",
+                    body: result.message,
+                    duration: 3000,
+                });
+            } else {
+                toaster.toast({
+                    title: "SuggestMe • Retry Failed",
+                    body: result?.error || "Unknown error",
+                    duration: 5000,
+                });
+            }
+            reload();
+        } catch (e) {
+            logger.error("[SuggestMe] Retry heroic failed:", e);
+            toaster.toast({
+                title: "SuggestMe • Retry Failed",
+                body: "Failed to retry Heroic matching",
+                duration: 5000,
+            });
+        }
+        setIsRetryingHeroic(false);
+    };
+
+    const handleRetryUnmatchedNonSteam = async () => {
+        setIsRetryingNonSteam(true);
+        try {
+            const result = await call<[], {
+                success: boolean;
+                retried?: number;
+                newly_matched?: number;
+                still_unmatched?: number;
+                message?: string;
+                error?: string;
+            }>("retry_unmatched_non_steam");
+
+            if (result?.success) {
+                const updatedInfo = await call<[], NonSteamGamesInfo>("get_non_steam_games");
+                setNonSteamInfo(updatedInfo);
+                toaster.toast({
+                    title: "SuggestMe • Non-Steam Retry Complete",
+                    body: `${result.newly_matched || 0} newly matched • ${result.still_unmatched || 0} still unmatched`,
+                    duration: 4000,
+                });
+            } else if (result?.message) {
+                toaster.toast({
+                    title: "SuggestMe",
+                    body: result.message,
+                    duration: 3000,
+                });
+            } else {
+                toaster.toast({
+                    title: "SuggestMe • Retry Failed",
+                    body: result?.error || "Unknown error",
+                    duration: 5000,
+                });
+            }
+            reload();
+        } catch (e) {
+            logger.error("[SuggestMe] Retry non-steam failed:", e);
+            toaster.toast({
+                title: "SuggestMe • Retry Failed",
+                body: "Failed to retry Non-Steam matching",
+                duration: 5000,
+            });
+        }
+        setIsRetryingNonSteam(false);
+    };
+
     const steamGamesCount = status.steam_games_count || 0;
     const nonSteamGamesCount = nonSteamInfo?.matched || 0;
+    const nonSteamUnmatchedCount = nonSteamInfo?.unmatched || 0;
     const heroicGamesCount = status.heroic_games_count || 0;
+    const heroicUnmatchedCount = status.heroic_unmatched_count || 0;
     const totalGamesCount =
         steamGamesCount + nonSteamGamesCount + heroicGamesCount;
 
@@ -1326,7 +1436,7 @@ const LibraryPage = () => {
 
                 <PanelSectionRow>
                     <div style={{ fontSize: 11, color: "#888", textAlign: "center" }}>
-                        Re-syncs entire library and refreshes all metadata
+                        Full library rescan — detects all Steam, Non-Steam, and Heroic games. Safe to run while using Steam Deck normally.
                     </div>
                 </PanelSectionRow>
                 <PanelSectionRow>
@@ -1340,7 +1450,7 @@ const LibraryPage = () => {
                             borderRadius: 6,
                         }}
                     >
-                        Large libraries (300+ games) may take several minutes to sync
+                        First sync or large libraries (300+ games) may take 5–15 minutes. You can navigate away — sync continues in the background.
                     </div>
                 </PanelSectionRow>
 
@@ -1356,6 +1466,80 @@ const LibraryPage = () => {
                     />
                 </PanelSectionRow>
 
+                <PanelSectionRow>
+                    <div style={{ fontSize: 11, color: "#888", textAlign: "center" }}>
+                        Quick scan — only detects games added since last sync
+                    </div>
+                </PanelSectionRow>
+
+                {heroicUnmatchedCount > 0 && (
+                    <PanelSectionRow>
+                        <div
+                            style={{
+                                fontSize: 12,
+                                color: "#ddaa77",
+                                textAlign: "center",
+                                padding: "8px",
+                                backgroundColor: "#ddaa7722",
+                                borderRadius: 8,
+                            }}
+                        >
+                            {heroicUnmatchedCount} Heroic game{heroicUnmatchedCount !== 1 ? "s" : ""} unmatched — these won't appear in suggestions until matched
+                        </div>
+                        <ButtonItem
+                            layout="below"
+                            onClick={handleRetryUnmatchedHeroic}
+                            disabled={status.is_refreshing || isRetryingHeroic}
+                        >
+                            {isRetryingHeroic ? (
+                                <>
+                                    <Spinner style={{ marginRight: 8, width: 16, height: 16 }} />
+                                    Retrying...
+                                </>
+                            ) : (
+                                <>
+                                    <FaRedo style={{ marginRight: 8 }} />
+                                    Retry Unmatched Heroic ({heroicUnmatchedCount})
+                                </>
+                            )}
+                        </ButtonItem>
+                    </PanelSectionRow>
+                )}
+
+                {nonSteamUnmatchedCount > 0 && (
+                    <PanelSectionRow>
+                        <div
+                            style={{
+                                fontSize: 12,
+                                color: "#88aa88",
+                                textAlign: "center",
+                                padding: "8px",
+                                backgroundColor: "#88aa8822",
+                                borderRadius: 8,
+                            }}
+                        >
+                            {nonSteamUnmatchedCount} Non-Steam game{nonSteamUnmatchedCount !== 1 ? "s" : ""} unmatched — these won't appear in suggestions until matched
+                        </div>
+                        <ButtonItem
+                            layout="below"
+                            onClick={handleRetryUnmatchedNonSteam}
+                            disabled={status.is_refreshing || isRetryingNonSteam}
+                        >
+                            {isRetryingNonSteam ? (
+                                <>
+                                    <Spinner style={{ marginRight: 8, width: 16, height: 16 }} />
+                                    Retrying...
+                                </>
+                            ) : (
+                                <>
+                                    <FaRedo style={{ marginRight: 8 }} />
+                                    Retry Unmatched Non-Steam ({nonSteamUnmatchedCount})
+                                </>
+                            )}
+                        </ButtonItem>
+                    </PanelSectionRow>
+                )}
+
                 {!hasCredentials && (
                     <PanelSectionRow>
                         <div
@@ -1369,6 +1553,23 @@ const LibraryPage = () => {
                             }}
                         >
                             Set up your Steam credentials first.
+                        </div>
+                    </PanelSectionRow>
+                )}
+
+                {!hasCredentials && totalGamesCount === 0 && (
+                    <PanelSectionRow>
+                        <div
+                            style={{
+                                fontSize: 12,
+                                color: "#6688ff",
+                                textAlign: "center",
+                                padding: "8px",
+                                backgroundColor: "#6688ff22",
+                                borderRadius: 8,
+                            }}
+                        >
+                            New to SuggestMe? Enter a Steam API key and Steam ID above, then sync your library to get started.
                         </div>
                     </PanelSectionRow>
                 )}
@@ -1828,7 +2029,7 @@ const AboutPage = () => {
                         style={{ width: "100%", textAlign: "center", padding: "12px 0" }}
                     >
                         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
-                            SuggestMe v1.6.0
+                            SuggestMe v1.6.1
                         </div>
                         <div style={{ fontSize: 11, color: "#888" }}>
                             A smart game recommender for your Steam library.

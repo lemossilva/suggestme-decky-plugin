@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
     Focusable,
     PanelSection,
@@ -156,6 +156,12 @@ export function GamesListModal({
     const [installedOnly, setInstalledOnly] = useState(false);
     const [compactMode, setCompactMode] = useState(false);
     const [justAddedGames, setJustAddedGames] = useState<Set<number>>(new Set());
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 80;
+
+    useEffect(() => {
+        setPage(1);
+    }, [quickFilter, installedOnly, sortBy, includeNonSteam, includeUnmatched]);
     const backButtonRef = useRef<HTMLDivElement>(null);
 
     const containerRef = useRef<HTMLDivElement>(null);
@@ -179,11 +185,19 @@ export function GamesListModal({
         return () => clearTimeout(timer);
     }, [showTopSpacer]);
 
-    const baseFilteredGames = showNonSteamToggles
-        ? games
-        : games.filter(g => !g.is_non_steam || g.match_status === "matched");
+    const baseFilteredGames = useMemo(() =>
+        showNonSteamToggles
+            ? games
+            : games.filter(g => !g.is_non_steam || g.match_status === "matched"),
+    [games, showNonSteamToggles]);
 
-    const quickFilteredGames = baseFilteredGames.filter(g => {
+    const unplayedCount = useMemo(() => baseFilteredGames.filter(g => g.playtime_forever === 0).length, [baseFilteredGames]);
+    const playedCount = useMemo(() => baseFilteredGames.filter(g => g.playtime_forever > 0).length, [baseFilteredGames]);
+    const steamCount = useMemo(() => baseFilteredGames.filter(g => g.source === "steam" && !g.is_non_steam).length, [baseFilteredGames]);
+    const nonSteamCount = useMemo(() => baseFilteredGames.filter(g => g.source === "steam" && g.is_non_steam).length, [baseFilteredGames]);
+    const heroicCount = useMemo(() => baseFilteredGames.filter(g => g.source !== "steam").length, [baseFilteredGames]);
+
+    const quickFilteredGames = useMemo(() => baseFilteredGames.filter(g => {
         if (quickFilter === "unplayed") return g.playtime_forever === 0;
         if (quickFilter === "played") return g.playtime_forever > 0;
         if (quickFilter === "steam") return g.source === "steam" && !g.is_non_steam;
@@ -193,9 +207,9 @@ export function GamesListModal({
     }).filter(g => {
         if (!installedOnly) return true;
         return g.is_installed !== false;
-    });
+    }), [baseFilteredGames, quickFilter, installedOnly]);
 
-    const sortedGames = [...quickFilteredGames].sort((a, b) => {
+    const sortedGames = useMemo(() => [...quickFilteredGames].sort((a, b) => {
         if (sortBy === "playtime") {
             return b.playtime_forever - a.playtime_forever;
         }
@@ -203,7 +217,12 @@ export function GamesListModal({
             return (b.rtime_last_played || 0) - (a.rtime_last_played || 0);
         }
         return a.name.localeCompare(b.name);
-    });
+    }), [quickFilteredGames, sortBy]);
+
+    const totalPages = Math.max(1, Math.ceil(sortedGames.length / PAGE_SIZE));
+    const visibleGames = useMemo(() =>
+        sortedGames.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [sortedGames, page]);
 
     const handleNavigateToGame = (game: Game) => {
         if (game.source !== "steam") return;
@@ -281,12 +300,6 @@ export function GamesListModal({
             border: "1px solid #4488aa66",
         };
     };
-
-    const unplayedCount = baseFilteredGames.filter(g => g.playtime_forever === 0).length;
-    const playedCount = baseFilteredGames.filter(g => g.playtime_forever > 0).length;
-    const steamCount = baseFilteredGames.filter(g => g.source === "steam" && !g.is_non_steam).length;
-    const nonSteamCount = baseFilteredGames.filter(g => g.source === "steam" && g.is_non_steam).length;
-    const heroicCount = baseFilteredGames.filter(g => g.source !== "steam").length;
 
     return (
         <div ref={containerRef} style={{ padding: `${s(16)}px ${s(16)}px ${s(80)}px ${s(16)}px`, maxHeight: "calc(100vh - 60px)", overflowY: "auto", boxSizing: 'border-box', width: '100%' }}>
@@ -382,7 +395,8 @@ export function GamesListModal({
                         )}
                         <div style={{ fontSize: 11, color: "#4488aa", marginTop: 4 }}>
                             {sortedGames.length} game{sortedGames.length !== 1 ? "s" : ""}
-                            {quickFilter !== "all" && ` (filtered from ${baseFilteredGames.length})`}
+                            {quickFilter !== "all" && ` (filtered from ${games.length})`}
+                            {totalPages > 1 && ` • Page ${page}/${totalPages}`}
                         </div>
                         {filters && (
                             <div style={{ 
@@ -579,7 +593,7 @@ export function GamesListModal({
                         </div>
                     </PanelSectionRow>
                 ) : (
-                    sortedGames.map((game) => {
+                    visibleGames.map((game) => {
                         const { width: iconWidth, height: iconHeight } = getIconDimensions(game);
                         const gameInPlayNext = isInPlayNext(game.appid);
                         const gameJustAdded = justAddedGames.has(game.appid);
@@ -1021,6 +1035,65 @@ export function GamesListModal({
                     })
                 )}
             </PanelSection>
+
+            {totalPages > 1 && (
+                <PanelSection>
+                    <PanelSectionRow>
+                        <Focusable
+                            flow-children="row"
+                            style={{
+                                display: "flex",
+                                gap: 12,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: "8px 0",
+                            }}
+                        >
+                            <Focusable
+                                onActivate={() => setPage(p => Math.max(1, p - 1))}
+                                style={{
+                                    padding: "8px 16px",
+                                    backgroundColor: page > 1 ? "#ffffff11" : "#ffffff05",
+                                    borderRadius: 6,
+                                    cursor: page > 1 ? "pointer" : "default",
+                                    border: "2px solid transparent",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    opacity: page > 1 ? 1 : 0.4,
+                                }}
+                                onFocus={(e: any) => { if (page > 1) e.target.style.borderColor = "white"; }}
+                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                            >
+                                <FaArrowLeft size={10} />
+                                <span style={{ fontSize: 11 }}>Prev</span>
+                            </Focusable>
+                            <span style={{ fontSize: 11, color: "#888", minWidth: 100, textAlign: "center" }}>
+                                Page {page} of {totalPages}
+                            </span>
+                            <Focusable
+                                onActivate={() => setPage(p => Math.min(totalPages, p + 1))}
+                                style={{
+                                    padding: "8px 16px",
+                                    backgroundColor: page < totalPages ? "#ffffff11" : "#ffffff05",
+                                    borderRadius: 6,
+                                    cursor: page < totalPages ? "pointer" : "default",
+                                    border: "2px solid transparent",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    opacity: page < totalPages ? 1 : 0.4,
+                                }}
+                                onFocus={(e: any) => { if (page < totalPages) e.target.style.borderColor = "white"; }}
+                                onBlur={(e: any) => (e.target.style.borderColor = "transparent")}
+                            >
+                                <span style={{ fontSize: 11 }}>Next</span>
+                                <FaArrowLeft size={10} style={{ transform: "rotate(180deg)" }} />
+                            </Focusable>
+                        </Focusable>
+                    </PanelSectionRow>
+                </PanelSection>
+            )}
         </div>
     );
 }

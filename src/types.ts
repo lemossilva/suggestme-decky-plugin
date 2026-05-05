@@ -119,7 +119,11 @@ export interface LibraryStatus {
   total_games: number;
   steam_games_count: number;
   non_steam_games_count: number;
+  non_steam_matched_count?: number;
+  non_steam_unmatched_count?: number;
   heroic_games_count?: number;
+  heroic_total_count?: number;
+  heroic_unmatched_count?: number;
   is_refreshing: boolean;
   error?: string;
   sync_progress?: { current: number; total: number } | null;

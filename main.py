@@ -1137,12 +1137,17 @@ class Plugin:
                 "total": sync_progress.get("total", 0),
             }
 
+        heroic_unmatched = len([g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "unmatched"])
+        non_steam_unmatched = len([g for g in self.library_cache if g.is_non_steam and g.match_status == "unmatched"])
+
         return {
             "last_refresh": self.last_refresh,
             "total_games": matched_total,
             "steam_games_count": len(steam_games),
             "non_steam_games_count": len(non_steam_games),
+            "non_steam_unmatched": non_steam_unmatched,
             "heroic_games_count": len(heroic_games),
+            "heroic_unmatched": heroic_unmatched,
             "is_refreshing": self.is_refreshing,
             "error": self.refresh_error,
             "sync_progress": progress_info,
@@ -1452,60 +1457,58 @@ class Plugin:
             cmp_name = compare_name or game_name
             url = "https://store.steampowered.com/api/storesearch/"
             params = {"term": term, "cc": "us", "l": "en"}
-            ssl_ctx = _create_ssl_context()
-            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
             try:
-                async with aiohttp.ClientSession(connector=connector) as session:
-                    for attempt in range(3):
-                        async with session.get(url, params=params) as response:
-                            if response.status == 429:
-                                wait_time = (attempt + 1) * 2
-                                decky.logger.debug(f"Rate limited for store search '{term}', waiting {wait_time}s (attempt {attempt + 1})")
-                                await asyncio.sleep(wait_time)
-                                continue
-                            if response.status != 200:
-                                return None
-                            data = await response.json()
-                            break
-                    else:
-                        return None
-                    items = data.get("items", [])
-                    if not items:
-                        return None
-                    best_match = None
-                    best_score = 0.0
-                    for item in items[:max_items]:
-                        item_name = item.get("name", "")
-                        item_type = item.get("type", "")
-
-                        if item_type == "dlc" or self._is_likely_dlc(item_name, cmp_name):
+                session = await self._get_session()
+                for attempt in range(3):
+                    async with session.get(url, params=params, headers={"Accept-Language": "en"}) as response:
+                        if response.status == 429:
+                            wait_time = (attempt + 1) * 2
+                            decky.logger.debug(f"Rate limited for store search '{term}', waiting {wait_time}s (attempt {attempt + 1})")
+                            await asyncio.sleep(wait_time)
                             continue
+                        if response.status != 200:
+                            return None
+                        data = await response.json()
+                        break
+                else:
+                    return None
+                items = data.get("items", [])
+                if not items:
+                    return None
+                best_match = None
+                best_score = 0.0
+                for item in items[:max_items]:
+                    item_name = item.get("name", "")
+                    item_type = item.get("type", "")
 
-                        score = self._calculate_name_similarity(cmp_name, item_name, mode)
+                    if item_type == "dlc" or self._is_likely_dlc(item_name, cmp_name):
+                        continue
 
-                        q_words = self._normalize_game_name(cmp_name, mode).split()
-                        r_words = self._normalize_game_name(item_name, mode).split()
-                        if q_words and r_words:
-                            ratio = len(r_words) / len(q_words)
-                            if ratio < 0.25 or ratio > 3.0:
-                                score *= 0.5
+                    score = self._calculate_name_similarity(cmp_name, item_name, mode)
 
-                        if mode == "strict":
-                            q_set = set(q_words)
-                            r_set = set(r_words)
-                            if len(q_set) >= 3 and len(q_set & r_set) < 2:
-                                score *= 0.6
+                    q_words = self._normalize_game_name(cmp_name, mode).split()
+                    r_words = self._normalize_game_name(item_name, mode).split()
+                    if q_words and r_words:
+                        ratio = len(r_words) / len(q_words)
+                        if ratio < 0.25 or ratio > 3.0:
+                            score *= 0.5
 
-                        if score > best_score:
-                            best_score = score
-                            best_match = item
-                    if best_match and best_score >= min_score:
-                        return {
-                            "appid": best_match.get("id"),
-                            "name": best_match.get("name"),
-                            "price": best_match.get("price", {}).get("final", 0),
-                            "match_confidence": best_score,
-                        }
+                    if mode == "strict":
+                        q_set = set(q_words)
+                        r_set = set(r_words)
+                        if len(q_set) >= 3 and len(q_set & r_set) < 2:
+                            score *= 0.6
+
+                    if score > best_score:
+                        best_score = score
+                        best_match = item
+                if best_match and best_score >= min_score:
+                    return {
+                        "appid": best_match.get("id"),
+                        "name": best_match.get("name"),
+                        "price": best_match.get("price", {}).get("final", 0),
+                        "match_confidence": best_score,
+                    }
             except Exception as e:
                 decky.logger.warning(f"Steam store search failed for '{game_name}': {e}")
             return None
@@ -1907,124 +1910,212 @@ class Plugin:
         If reset=True, removes ALL existing heroic games from cache before scanning (used by dedicated sync button).
         If reset=False, only detects games not already in cache (used by full_sync, sync_new_games, auto_sync).
         Returns stats dict."""
+        if getattr(self, "_heroic_syncing", False):
+            decky.logger.info("Heroic sync already in progress, skipping")
+            return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
+        self._heroic_syncing = True
+        try:
+            if not self.settings.get("heroic_import_enabled", False):
+                return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
+            enabled_stores = self.settings.get("heroic_enabled_stores", ["epic", "gog", "amazon"])
+            if not enabled_stores:
+                return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
+
+            existing_heroic_keys = {(g.heroic_app_name, g.source) for g in self.library_cache if g.source in ("epic", "gog", "amazon")}
+
+            # Preserve known matched appids so re-matching doesn't swap them
+            known_heroic_matches: dict[tuple[str, str], int] = {}
+            for g in self.library_cache:
+                if g.source in ("epic", "gog", "amazon") and g.matched_appid:
+                    known_heroic_matches[(g.original_name, g.source)] = g.matched_appid
+
+            if reset:
+                self.library_cache = [g for g in self.library_cache if g.source not in ("epic", "gog", "amazon")]
+                self._save_library_cache()
+                existing_heroic_keys = set()
+
+            if emit_progress:
+                self._heroic_sync_progress = {"phase": "detecting", "current": 0, "total": 0, "name": "Detecting Heroic games..."}
+                h_data = {"current": 0, "total": 0, "name": "Detecting Heroic games...", "phase": "detecting", "phase_label": "Detecting Heroic games..."}
+                await decky.emit("suggestme_heroic_sync_progress", h_data)
+                await decky.emit("suggestme_refresh_progress", h_data)
+
+            all_heroic = await self._detect_heroic_games()
+
+            new_detected = [g for g in all_heroic if (g.heroic_app_name, g.source) not in existing_heroic_keys]
+
+            if not new_detected:
+                decky.logger.info("Heroic sync: no new games detected")
+                return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
+
+            existing_non_steam_names = {g.original_name.lower().strip() for g in self.library_cache if g.is_non_steam}
+            existing_steam_appids = {g.appid for g in self.library_cache if not g.is_non_steam}
+            existing_matched_appids = {g.matched_appid for g in self.library_cache if g.matched_appid}
+
+            to_match = []
+            skipped_duplicates = 0
+            for g in new_detected:
+                name_key = g.original_name.lower().strip()
+                if name_key and name_key in existing_non_steam_names:
+                    skipped_duplicates += 1
+                    continue
+                to_match.append(g)
+
+            matched = []
+            unmatched = []
+            seen_matched_appids = set()
+            batch_size = 30
+
+            store_session = await self._get_session()
+
+            if emit_progress:
+                self._heroic_sync_progress = {"phase": "matching", "current": 0, "total": len(to_match), "name": "Matching games to Steam..."}
+
+            for i, game in enumerate(to_match):
+                if emit_progress:
+                    h_match_data = {"current": i + 1, "total": len(to_match), "name": game.name, "phase": "matching", "phase_label": f"Matching: {game.name} ({i + 1}/{len(to_match)})"}
+                    self._heroic_sync_progress = {"phase": "matching", "current": i + 1, "total": len(to_match), "name": game.name}
+                    await decky.emit("suggestme_heroic_sync_progress", h_match_data)
+                    await decky.emit("suggestme_refresh_progress", h_match_data)
+
+                matched_appid = None
+                # Prefer known match from previous sync to avoid re-matching to a different appid
+                known_appid = known_heroic_matches.get((game.original_name, game.source))
+                if known_appid and known_appid not in existing_steam_appids and known_appid not in existing_matched_appids and known_appid not in seen_matched_appids:
+                    matched_appid = known_appid
+                    decky.logger.debug(f"Heroic match: using known appid {matched_appid} for '{game.original_name}'")
+                else:
+                    match = await self._search_steam_store(game.original_name, mode="heroic")
+                    if match:
+                        matched_appid = match.get("appid")
+
+                if matched_appid:
+                    if matched_appid in existing_steam_appids:
+                        skipped_duplicates += 1
+                    elif matched_appid in existing_matched_appids:
+                        skipped_duplicates += 1
+                    elif matched_appid in seen_matched_appids:
+                        skipped_duplicates += 1
+                    else:
+                        game.matched_appid = matched_appid
+                        game.match_status = "matched"
+                        matched.append(game)
+                        seen_matched_appids.add(matched_appid)
+                else:
+                    game.match_status = "unmatched"
+                    unmatched.append(game)
+                if (i + 1) % batch_size == 0 and i + 1 < len(to_match):
+                    self._save_sync_progress(i + 1, len(to_match))
+                    await asyncio.sleep(1.0)
+                else:
+                    await asyncio.sleep(0.15)
+
+            decky.logger.info(f"Heroic sync: {len(matched)} new matches, {len(unmatched)} unmatched, {skipped_duplicates} dupes skipped")
+
+            if matched:
+                if emit_progress:
+                    self._heroic_sync_progress = {"phase": "metadata", "current": 0, "total": len(matched), "name": f"Fetching metadata for {len(matched)} games..."}
+                    h_meta_data = {"current": 0, "total": len(matched), "name": f"Fetching metadata for {len(matched)} games...", "phase": "metadata", "phase_label": f"Fetching metadata for {len(matched)} Heroic games..."}
+                    await decky.emit("suggestme_heroic_sync_progress", h_meta_data)
+                    await decky.emit("suggestme_refresh_progress", h_meta_data)
+                fetch_batch_size = 10 if emit_progress else 25
+                await self._fetch_game_metadata_batch(matched, batch_size=fetch_batch_size, progress_event="suggestme_heroic_sync_progress" if emit_progress else "suggestme_refresh_progress", progress_phase="metadata")
+                self.library_cache.extend(matched)
+
+            if unmatched:
+                self.library_cache.extend(unmatched)
+                decky.logger.info(f"Heroic sync: added {len(unmatched)} unmatched games to cache for manual review")
+
+            if matched or unmatched:
+                self._save_library_cache()
+
+            self._clear_sync_progress()
+
+            return {
+                "new_scanned": len(to_match),
+                "new_matched": len(matched),
+                "new_discarded": len(to_match) - len(matched),
+                "duplicates_skipped": skipped_duplicates,
+            }
+        finally:
+            self._heroic_syncing = False
+
+    async def retry_unmatched_heroic(self) -> dict:
+        """Re-run matching ONLY on unmatched Heroic games. Emits progress events to frontend."""
         if not self.settings.get("heroic_import_enabled", False):
-            return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
-        enabled_stores = self.settings.get("heroic_enabled_stores", ["epic", "gog", "amazon"])
-        if not enabled_stores:
-            return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
+            return {"success": False, "error": "Heroic import not enabled"}
 
-        existing_heroic_keys = {(g.heroic_app_name, g.source) for g in self.library_cache if g.source in ("epic", "gog", "amazon")}
+        unmatched = [g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "unmatched"]
+        if not unmatched:
+            return {"success": True, "retried": 0, "newly_matched": 0, "still_unmatched": 0}
 
-        # Preserve known matched appids so re-matching doesn't swap them
-        known_heroic_matches: dict[tuple[str, str], int] = {}
-        for g in self.library_cache:
-            if g.source in ("epic", "gog", "amazon") and g.matched_appid:
-                known_heroic_matches[(g.original_name, g.source)] = g.matched_appid
+        decky.logger.info(f"Retrying {len(unmatched)} unmatched Heroic games...")
+        existing_steam_appids = {g.appid for g in self.library_cache if not g.is_non_steam}
+        existing_matched_appids = {g.matched_appid for g in self.library_cache if g.matched_appid}
+        seen_matched_appids = set()
+        newly_matched = 0
+        still_unmatched = 0
 
-        if reset:
-            self.library_cache = [g for g in self.library_cache if g.source not in ("epic", "gog", "amazon")]
-            self._save_library_cache()
-            existing_heroic_keys = set()
-
-        if emit_progress:
-            self._heroic_sync_progress = {"phase": "detecting", "current": 0, "total": 0, "name": "Detecting Heroic games..."}
-            h_data = {"current": 0, "total": 0, "name": "Detecting Heroic games...", "phase": "detecting", "phase_label": "Detecting Heroic games..."}
+        for i, game in enumerate(unmatched):
+            h_data = {"current": i + 1, "total": len(unmatched), "name": game.name, "phase": "matching", "phase_label": f"Retrying: {game.name} ({i + 1}/{len(unmatched)})"}
             await decky.emit("suggestme_heroic_sync_progress", h_data)
             await decky.emit("suggestme_refresh_progress", h_data)
 
-        all_heroic = await self._detect_heroic_games()
+            match = await self._search_steam_store(game.original_name, mode="heroic")
+            matched_appid = match.get("appid") if match else None
 
-        new_detected = [g for g in all_heroic if (g.heroic_app_name, g.source) not in existing_heroic_keys]
-
-        if not new_detected:
-            decky.logger.info("Heroic sync: no new games detected")
-            return {"new_scanned": 0, "new_matched": 0, "new_discarded": 0, "duplicates_skipped": 0}
-
-        existing_non_steam_names = {g.original_name.lower().strip() for g in self.library_cache if g.is_non_steam}
-        existing_steam_appids = {g.appid for g in self.library_cache if not g.is_non_steam}
-        existing_matched_appids = {g.matched_appid for g in self.library_cache if g.matched_appid}
-
-        to_match = []
-        skipped_duplicates = 0
-        for g in new_detected:
-            name_key = g.original_name.lower().strip()
-            if name_key and name_key in existing_non_steam_names:
-                skipped_duplicates += 1
-                continue
-            to_match.append(g)
-
-        matched = []
-        unmatched = []
-        seen_matched_appids = set()
-        batch_size = 30
-
-        if emit_progress:
-            self._heroic_sync_progress = {"phase": "matching", "current": 0, "total": len(to_match), "name": "Matching games to Steam..."}
-
-        for i, game in enumerate(to_match):
-            if emit_progress:
-                h_match_data = {"current": i + 1, "total": len(to_match), "name": game.name, "phase": "matching", "phase_label": f"Matching: {game.name} ({i + 1}/{len(to_match)})"}
-                self._heroic_sync_progress = {"phase": "matching", "current": i + 1, "total": len(to_match), "name": game.name}
-                await decky.emit("suggestme_heroic_sync_progress", h_match_data)
-                await decky.emit("suggestme_refresh_progress", h_match_data)
-
-            matched_appid = None
-            # Prefer known match from previous sync to avoid re-matching to a different appid
-            known_appid = known_heroic_matches.get((game.original_name, game.source))
-            if known_appid and known_appid not in existing_steam_appids and known_appid not in existing_matched_appids and known_appid not in seen_matched_appids:
-                matched_appid = known_appid
-                decky.logger.debug(f"Heroic match: using known appid {matched_appid} for '{game.original_name}'")
+            if matched_appid and matched_appid not in existing_steam_appids and matched_appid not in existing_matched_appids and matched_appid not in seen_matched_appids:
+                game.matched_appid = matched_appid
+                game.match_status = "matched"
+                seen_matched_appids.add(matched_appid)
+                newly_matched += 1
+                decky.logger.info(f"Heroic retry matched: {game.original_name} -> appid {matched_appid}")
             else:
-                match = await self._search_steam_store(game.original_name, mode="heroic")
-                if match:
-                    matched_appid = match.get("appid")
+                still_unmatched += 1
+            await asyncio.sleep(0.15)
 
-            if matched_appid:
-                if matched_appid in existing_steam_appids:
-                    skipped_duplicates += 1
-                elif matched_appid in existing_matched_appids:
-                    skipped_duplicates += 1
-                elif matched_appid in seen_matched_appids:
-                    skipped_duplicates += 1
-                else:
-                    game.matched_appid = matched_appid
-                    game.match_status = "matched"
-                    matched.append(game)
-                    seen_matched_appids.add(matched_appid)
-            else:
-                game.match_status = "unmatched"
-                unmatched.append(game)
-            if (i + 1) % batch_size == 0:
-                self._save_sync_progress(i + 1, len(to_match))
-            await asyncio.sleep(0.05)
-
-        decky.logger.info(f"Heroic sync: {len(matched)} new matches, {len(unmatched)} unmatched, {skipped_duplicates} dupes skipped")
-
-        if matched:
-            if emit_progress:
-                self._heroic_sync_progress = {"phase": "metadata", "current": 0, "total": len(matched), "name": f"Fetching metadata for {len(matched)} games..."}
-                h_meta_data = {"current": 0, "total": len(matched), "name": f"Fetching metadata for {len(matched)} games...", "phase": "metadata", "phase_label": f"Fetching metadata for {len(matched)} Heroic games..."}
-                await decky.emit("suggestme_heroic_sync_progress", h_meta_data)
-                await decky.emit("suggestme_refresh_progress", h_meta_data)
-            fetch_batch_size = 10 if emit_progress else 25
-            await self._fetch_game_metadata_batch(matched, batch_size=fetch_batch_size, progress_event="suggestme_heroic_sync_progress" if emit_progress else "suggestme_refresh_progress", progress_phase="metadata")
-            self.library_cache.extend(matched)
-
-        if unmatched:
-            self.library_cache.extend(unmatched)
-            decky.logger.info(f"Heroic sync: added {len(unmatched)} unmatched games to cache for manual review")
-
-        if matched or unmatched:
+        if newly_matched > 0:
+            matched_games = [g for g in unmatched if g.match_status == "matched"]
+            await self._fetch_game_metadata_batch(matched_games, batch_size=10, progress_event="suggestme_heroic_sync_progress", progress_phase="metadata")
             self._save_library_cache()
 
-        self._clear_sync_progress()
+        await decky.emit("suggestme_heroic_sync_progress", {"current": 0, "total": 0, "name": "Done", "phase": "done", "phase_label": "Retry complete"})
+        await decky.emit("suggestme_refresh_progress", {"current": 0, "total": 0, "name": "Done", "phase": "done", "phase_label": "Retry complete"})
+        return {"success": True, "retried": len(unmatched), "newly_matched": newly_matched, "still_unmatched": still_unmatched}
 
-        return {
-            "new_scanned": len(to_match),
-            "new_matched": len(matched),
-            "new_discarded": len(to_match) - len(matched),
-            "duplicates_skipped": skipped_duplicates,
-        }
+    async def retry_unmatched_non_steam(self) -> dict:
+        """Re-run matching ONLY on unmatched Non-Steam games."""
+        unmatched = [g for g in self.library_cache if g.is_non_steam and g.match_status == "unmatched"]
+        if not unmatched:
+            return {"success": True, "retried": 0, "newly_matched": 0, "still_unmatched": 0}
+
+        decky.logger.info(f"Retrying {len(unmatched)} unmatched Non-Steam games...")
+        existing_steam_appids = {g.appid for g in self.library_cache if not g.is_non_steam}
+        existing_matched_appids = {g.matched_appid for g in self.library_cache if g.matched_appid}
+        seen_matched_appids = set()
+        newly_matched = 0
+        still_unmatched = 0
+
+        for i, game in enumerate(unmatched):
+            match = await self._search_steam_store(game.original_name, mode="strict")
+            matched_appid = match.get("appid") if match else None
+
+            if matched_appid and matched_appid not in existing_steam_appids and matched_appid not in existing_matched_appids and matched_appid not in seen_matched_appids:
+                game.matched_appid = matched_appid
+                game.match_status = "matched"
+                seen_matched_appids.add(matched_appid)
+                newly_matched += 1
+                decky.logger.info(f"Non-Steam retry matched: {game.original_name} -> appid {matched_appid}")
+            else:
+                still_unmatched += 1
+            await asyncio.sleep(0.15)
+
+        if newly_matched > 0:
+            matched_games = [g for g in unmatched if g.match_status == "matched"]
+            await self._fetch_game_metadata_batch(matched_games, batch_size=10, progress_event="suggestme_refresh_progress", progress_phase="metadata")
+            self._save_library_cache()
+
+        return {"success": True, "retried": len(unmatched), "newly_matched": newly_matched, "still_unmatched": still_unmatched}
 
     async def resync_heroic_game(self, original_name: str, new_search_term: str = None) -> dict:
         """Re-match a Heroic game against Steam Store, optionally with a new search term."""
@@ -3400,6 +3491,17 @@ class Plugin:
         if not api_key or not steam_id:
             return {"success": False, "error": "Steam API key and Steam ID are required"}
 
+        # Cancel any pending background auto-sync to prevent race conditions
+        if hasattr(self, "_auto_sync_task") and self._auto_sync_task and not self._auto_sync_task.done():
+            self._auto_sync_task.cancel()
+            try:
+                await self._auto_sync_task
+            except asyncio.CancelledError:
+                pass
+            self._auto_sync_task = None
+            decky.logger.info("Cancelled pending auto-sync task before full_sync")
+        self._heroic_syncing = False
+
         self.is_refreshing = True
         self.refresh_error = None
         await decky.emit("suggestme_library_status_changed", {
@@ -3536,9 +3638,27 @@ class Plugin:
             if heroic_result["new_matched"] > 0:
                 decky.logger.info(f"Heroic sync: added {heroic_result['new_matched']} new games")
 
+            # Auto-retry unmatched Heroic games (up to 3 passes)
+            for pass_num in range(1, 4):
+                unmatched_heroic = [g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "unmatched"]
+                if not unmatched_heroic:
+                    break
+                decky.logger.info(f"Auto-retry Heroic pass {pass_num}: {len(unmatched_heroic)} unmatched")
+                retry_result = await self.retry_unmatched_heroic()
+                if retry_result["newly_matched"] == 0:
+                    break
+
+            # Auto-retry unmatched Non-Steam games (1 pass)
+            unmatched_ns = [g for g in self.library_cache if g.is_non_steam and g.match_status == "unmatched"]
+            if unmatched_ns:
+                decky.logger.info(f"Auto-retry Non-Steam: {len(unmatched_ns)} unmatched")
+                await self.retry_unmatched_non_steam()
+
             steam_count = len(steam_games)
             non_steam_count = len(non_steam_games)
             heroic_count = len([g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "matched"])
+            heroic_unmatched = len([g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "unmatched"])
+            non_steam_unmatched = len([g for g in self.library_cache if g.is_non_steam and g.match_status == "unmatched"])
             
             self.is_refreshing = False
             await decky.emit("suggestme_library_status_changed", {
@@ -3556,8 +3676,10 @@ class Plugin:
                 "steam_count": steam_count,
                 "non_steam_count": non_steam_count,
                 "non_steam_matched": matched_count,
+                "non_steam_unmatched": non_steam_unmatched,
                 "heroic_count": heroic_count,
                 "heroic_matched": heroic_result["new_matched"],
+                "heroic_unmatched": heroic_unmatched,
                 "total_games": len(self.library_cache),
                 "last_refresh": self.last_refresh,
             }
@@ -3685,12 +3807,17 @@ class Plugin:
                 "error": None,
             })
 
+            heroic_unmatched = len([g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "unmatched"])
+            non_steam_unmatched = len([g for g in self.library_cache if g.is_non_steam and g.match_status == "unmatched"])
+
             return {
                 "success": True,
                 "new_steam_count": len(new_steam_games),
                 "new_non_steam_count": len(new_non_steam_games),
                 "new_non_steam_matched": matched_count,
                 "new_heroic_matched": heroic_result["new_matched"],
+                "heroic_unmatched": heroic_unmatched,
+                "non_steam_unmatched": non_steam_unmatched,
                 "total_games": len(self.library_cache),
                 "last_refresh": self.last_refresh,
             }
@@ -4366,11 +4493,15 @@ class Plugin:
             })
 
             total_new = len(new_steam_games) + len([g for g in new_non_steam_games if g.matched_appid]) + heroic_result["new_matched"]
+            heroic_unmatched = len([g for g in self.library_cache if g.source in ("epic", "gog", "amazon") and g.match_status == "unmatched"])
+            non_steam_unmatched = len([g for g in self.library_cache if g.is_non_steam and g.match_status == "unmatched"])
             return {
                 "success": True,
                 "new_games": total_new,
                 "silent": total_new == 0,
                 "total_games": len(self.library_cache),
+                "heroic_unmatched": heroic_unmatched,
+                "non_steam_unmatched": non_steam_unmatched,
             }
         except Exception as e:
             decky.logger.error(f"Auto-sync failed: {e}")
